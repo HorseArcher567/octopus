@@ -1,7 +1,0 @@
-{
-    "database": {
-        "type": "mysql",
-        "addr": "172.168.0.3",
-        "port": 3308
-    }
-}

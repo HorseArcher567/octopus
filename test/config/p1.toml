@@ -1,4 +1,0 @@
-[database.info]
-type = "mysql"
-addr = "172.168.0.1"
-time = "2021-03-19 14:15:16"
