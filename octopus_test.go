@@ -3,7 +3,7 @@ package octopus
 import "testing"
 
 const rawConfig = `
-simple-plugin:
+grpc:
   - name: gateGrpc
     enabled: true
     ip: 0.0.0.0
