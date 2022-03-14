@@ -1,12 +1,14 @@
 package octopus
 
 import (
+	"context"
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"gopkg.in/yaml.v2"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 const (
@@ -50,12 +52,6 @@ func NewApplication(options ...Option) *Application {
 			app.configPath = defaultApplicationConfigPath
 		}
 
-		/*
-			if !path.IsAbs(app.configPath) {
-				wd, _ := os.Getwd()
-				app.configPath = path.Join(wd, app.configPath)
-			}*/
-
 		if rawYaml, err := os.ReadFile(app.configPath); err != nil {
 			log.Panicln(err)
 		} else {
@@ -67,14 +63,17 @@ func NewApplication(options ...Option) *Application {
 		log.Panicln(err)
 	}
 
-	service.BuildEntries(app.bootConfig)
+	service.Init(app.bootConfig)
 	return app
 }
 
 func (app *Application) Run() {
-	service.Run()
+	service.Run(context.Background())
 	app.listenSignal()
-	service.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	service.Stop(ctx)
 }
 
 func (app *Application) listenSignal() {

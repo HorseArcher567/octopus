@@ -23,6 +23,6 @@ func TestBuilder_Build(t *testing.T) {
 	log.Infof("%+v", bootConfig)
 
 	var builder Builder
-	services := builder.Build(bootConfig)
+	services := builder.Build(bootConfig, "yaml")
 	assert.Equal(t, 1, len(services))
 }

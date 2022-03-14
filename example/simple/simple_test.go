@@ -6,6 +6,7 @@ import (
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"io"
 	"net/http"
 	"testing"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestGreeterServer_Hello(t *testing.T) {
-	conn, err := grpc.Dial("localhost:8082", grpc.WithInsecure())
+	conn, err := grpc.Dial("localhost:8082", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	assert.Nil(t, err)
 
 	client := greeter.NewGreeterClient(conn)

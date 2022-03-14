@@ -15,10 +15,12 @@ http:
     port: 8080
 `
 
-func TestNewApplication(t *testing.T) {
+func TestWithApplicationConfigRawYaml(t *testing.T) {
 	app := NewApplication(WithApplicationConfigRawYaml([]byte(rawConfig)))
 	app.Run()
+}
 
-	app = NewApplication(WithApplicationConfigPath("./bootConfig/application.yaml"))
+func TestWithApplicationConfigPath(t *testing.T) {
+	app := NewApplication(WithApplicationConfigPath("./config/application.yaml"))
 	app.Run()
 }

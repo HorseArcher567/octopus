@@ -13,16 +13,20 @@ import (
 
 func main() {
 	app := octopus.NewApplication()
+
 	grpcService := grpcsvc.MustGetService("grpcService1")
 	grpcService.Register(registerGreeter)
+
 	httpService1 := httpsvc.MustGetService("httpService1")
 	httpService1.Router().GET("/api/v1/greeter", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, "this is http service1 greeter.")
 	})
+
 	httpService2 := httpsvc.MustGetService("httpService2")
 	httpService2.Router().GET("/api/v1/greeter", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, "this is http service2 greeter.")
 	})
+
 	app.Run()
 }
 
