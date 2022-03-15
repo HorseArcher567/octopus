@@ -1,26 +1,27 @@
 package octopus
 
-import "testing"
+import (
+	"github.com/stretchr/testify/assert"
+	"testing"
+)
 
 const rawConfig = `
 grpc:
   - name: gateGrpc
     enabled: true
-    ip: 0.0.0.0
-    port: 8081
+    address: :8081
 http:
   - name: gateHttp
     enabled: true
-    ip: 0.0.0.0
-    port: 8080
+    address: :8080
 `
 
-func TestWithApplicationConfigRawYaml(t *testing.T) {
-	app := NewApplication(WithApplicationConfigRawYaml([]byte(rawConfig)))
-	app.Run()
-}
-
-func TestWithApplicationConfigPath(t *testing.T) {
-	app := NewApplication(WithApplicationConfigPath("./config/application.yaml"))
-	app.Run()
+func TestWithConfigRawYaml(t *testing.T) {
+	app := &application{}
+	option := WithConfigRawYaml([]byte(rawConfig))
+	option(app)
+	app.initBootConfig()
+	assert.Equal(t, 2, len(app.bootConfig))
+	assert.NotNil(t, app.bootConfig["grpc"])
+	assert.NotNil(t, app.bootConfig["http"])
 }

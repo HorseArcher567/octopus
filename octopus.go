@@ -2,7 +2,6 @@ package octopus
 
 import (
 	"context"
-	"fmt"
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"gopkg.in/yaml.v2"
@@ -15,51 +14,55 @@ const (
 	defaultApplicationConfigPath = `./config/application.yaml`
 )
 
-type Application struct {
+var (
+	defaultApp = &application{}
+)
+
+func Init(options ...Option) {
+	for _, option := range options {
+		option(defaultApp)
+	}
+
+	// load boot config from raw yaml or local yaml file
+	defaultApp.initBootConfig()
+	// init all service by boot config
+	defaultApp.initService()
+}
+
+func Run() {
+	defaultApp.Run()
+}
+
+type application struct {
 	configPath    string
 	configRawYaml []byte
 	bootConfig    map[interface{}]interface{}
 }
 
-type Option func(*Application)
+type Option func(*application)
 
-func WithApplicationConfigRawYaml(rawYaml []byte) Option {
-	return func(app *Application) {
-		if len(app.configPath) != 0 {
-			log.Panicln("bootConfig path already specified.")
-		}
+func WithConfigRawYaml(rawYaml []byte) Option {
+	return func(app *application) {
 		app.configRawYaml = rawYaml
 	}
 }
 
-func WithApplicationConfigPath(path string) Option {
-	return func(app *Application) {
-		if len(app.configRawYaml) != 0 {
-			log.Panicln("bootConfig raw yaml already specified.")
-		}
+func WithConfigPath(path string) Option {
+	return func(app *application) {
 		app.configPath = path
 	}
 }
 
-func NewApplication(options ...Option) *Application {
-	app := &Application{}
-	for _, option := range options {
-		option(app)
-	}
-
-	app.initBootConfig()
-	app.initService()
-
-	return app
-}
-
-func (app *Application) Run() {
+func (app *application) Run() {
+	// start all services
 	app.startService()
+	// waiting for interrupt signal
 	app.listenSignal()
+	// stop all services
 	app.stopService()
 }
 
-func (app *Application) initBootConfig() {
+func (app *application) initBootConfig() {
 	if len(app.configRawYaml) == 0 {
 		if len(app.configPath) == 0 {
 			app.configPath = defaultApplicationConfigPath
@@ -77,26 +80,27 @@ func (app *Application) initBootConfig() {
 	}
 }
 
-func (app *Application) initService() {
+func (app *application) initService() {
 	service.Init(app.bootConfig)
 }
 
-func (app *Application) startService() {
+func (app *application) startService() {
 	service.Start(context.Background())
 }
 
-func (app *Application) stopService() {
+func (app *application) stopService() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
 	service.Stop(ctx)
 }
 
-func (app *Application) listenSignal() {
+func (app *application) listenSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
 	select {
 	case s := <-c:
-		fmt.Println("receive signal", s)
+		log.Errorln("receive", s, "signal")
 	}
 }

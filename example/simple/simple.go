@@ -11,8 +11,11 @@ import (
 	"net/http"
 )
 
+func init() {
+}
+
 func main() {
-	app := octopus.NewApplication()
+	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 
 	grpcService := grpcsvc.MustGetService("grpcService1")
 	grpcService.Register(registerGreeter)
@@ -27,7 +30,7 @@ func main() {
 		ctx.String(http.StatusOK, "this is http service2 greeter.")
 	})
 
-	app.Run()
+	octopus.Run()
 }
 
 type GreeterServer struct {
