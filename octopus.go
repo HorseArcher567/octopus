@@ -2,6 +2,7 @@ package octopus
 
 import (
 	"context"
+	"fmt"
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"gopkg.in/yaml.v2"
@@ -91,11 +92,11 @@ func (app *Application) stopService() {
 }
 
 func (app *Application) listenSignal() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
-	defer cancel()
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
 
 	select {
-	case <-ctx.Done():
-		log.Errorln("application will exist,", ctx.Err())
+	case s := <-c:
+		fmt.Println("receive signal", s)
 	}
 }
