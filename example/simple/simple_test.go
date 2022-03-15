@@ -14,7 +14,7 @@ import (
 )
 
 func TestGreeterServer_Hello(t *testing.T) {
-	conn, err := grpc.Dial("localhost:8082", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial("localhost:9092", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	assert.Nil(t, err)
 
 	client := greeter.NewGreeterClient(conn)
@@ -27,12 +27,12 @@ func TestGreeterServer_Hello(t *testing.T) {
 }
 
 func TestHttpService(t *testing.T) {
-	reply, err := http.Get("http://localhost:8080/api/v1/greeter")
+	reply, err := http.Get("http://localhost:9090/api/v1/greeter")
 	assert.Nil(t, err)
 	body, _ := io.ReadAll(reply.Body)
 	log.Infoln(string(body))
 
-	reply, err = http.Get("http://localhost:8081/api/v1/greeter")
+	reply, err = http.Get("http://localhost:9091/api/v1/greeter")
 	assert.Nil(t, err)
 	body, _ = io.ReadAll(reply.Body)
 	log.Infoln(string(body))

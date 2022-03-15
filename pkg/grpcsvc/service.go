@@ -10,6 +10,7 @@ func init() {
 	service.RegisterBuilder(&Builder{})
 }
 
+// MustGetService get service by name, or panic.
 func MustGetService(name string) *Service {
 	entry := service.Get(name)
 	if entry == nil {

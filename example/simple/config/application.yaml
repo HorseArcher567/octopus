@@ -1,11 +1,11 @@
 http:
   - enabled: true
     name: httpService1
-    address: 0.0.0.0:8080
+    address: 0.0.0.0:9090
   - enabled: true
     name: httpService2
-    address: 0.0.0.0:8081
+    address: 0.0.0.0:9091
 grpc:
   - enabled: true
     name: grpcService1
-    address: 0.0.0.0:8082
+    address: 0.0.0.0:9092

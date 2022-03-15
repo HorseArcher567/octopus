@@ -7,7 +7,6 @@ import (
 	"gopkg.in/yaml.v2"
 	"os"
 	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -47,6 +46,19 @@ func NewApplication(options ...Option) *Application {
 		option(app)
 	}
 
+	app.initBootConfig()
+	app.initService()
+
+	return app
+}
+
+func (app *Application) Run() {
+	app.startService()
+	app.listenSignal()
+	app.stopService()
+}
+
+func (app *Application) initBootConfig() {
 	if len(app.configRawYaml) == 0 {
 		if len(app.configPath) == 0 {
 			app.configPath = defaultApplicationConfigPath
@@ -62,26 +74,28 @@ func NewApplication(options ...Option) *Application {
 	if err := yaml.Unmarshal(app.configRawYaml, &app.bootConfig); err != nil {
 		log.Panicln(err)
 	}
-
-	service.Init(app.bootConfig)
-	return app
 }
 
-func (app *Application) Run() {
-	service.Run(context.Background())
-	app.listenSignal()
+func (app *Application) initService() {
+	service.Init(app.bootConfig)
+}
 
+func (app *Application) startService() {
+	service.Start(context.Background())
+}
+
+func (app *Application) stopService() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	service.Stop(ctx)
 }
 
 func (app *Application) listenSignal() {
-	c := make(chan os.Signal)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer cancel()
+
 	select {
-	case sig := <-c:
-		log.Warnln("receive signal:", sig)
-		return
+	case <-ctx.Done():
+		log.Errorln("application will exist,", ctx.Err())
 	}
 }

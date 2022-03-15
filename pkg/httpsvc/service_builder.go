@@ -8,10 +8,6 @@ import (
 	"net/http"
 )
 
-var (
-	registeredBuilders []Builder
-)
-
 type Builder struct {
 }
 
