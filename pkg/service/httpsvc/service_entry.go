@@ -1,4 +1,4 @@
-package grpcsvc
+package httpsvc
 
 import (
 	"context"
@@ -6,10 +6,12 @@ import (
 	"net"
 )
 
+// Name implements service.Entry interface.
 func (svc *Service) Name() string {
 	return svc.name
 }
 
+// Serve implements service.Entry interface.
 func (svc *Service) Serve(_ context.Context) {
 	log.Infoln(svc.Name(), "begin serve")
 
@@ -20,10 +22,10 @@ func (svc *Service) Serve(_ context.Context) {
 	}
 
 	err = svc.server.Serve(listener)
-	log.Errorln(svc.Name(), "end serve", err)
+	log.Errorln(svc.Name(), "end serve,", err)
 }
 
-func (svc *Service) Stop(_ context.Context) {
-	svc.server.GracefulStop()
-	log.Errorln("stopped", svc.Name())
+// Stop implements service.Entry interface.
+func (svc *Service) Stop(ctx context.Context) {
+	log.Errorln(svc.Name(), "stopped", svc.server.Shutdown(ctx))
 }

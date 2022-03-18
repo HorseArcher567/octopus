@@ -10,17 +10,21 @@ var (
 
 // Builder build service entries by config.
 type Builder interface {
-	Build(bootConfig map[interface{}]interface{}, tag string) []Entry
+	Build(bootConfig map[interface{}]interface{}, tag string) Entry
 }
 
-// RegisterBuilder register builder, and build service entries while service.Init function called.
+// RegisterBuilder registerEntry builder, and build service entries while service.Init
+// function called.
 func RegisterBuilder(builder Builder) {
 	registeredBuilders = append(registeredBuilders, builder)
 }
 
-func buildEntries(bootConfig map[interface{}]interface{}) {
+// buildEntry build service entry by invoke registered Builder.Build.
+func buildEntry(bootConfig map[interface{}]interface{}) []Entry {
+	var entries []Entry
 	for _, builder := range registeredBuilders {
-		entries := builder.Build(bootConfig, defaultConfigTag)
-		register(entries...)
+		entry := builder.Build(bootConfig, defaultConfigTag)
+		entries = append(entries, entry)
 	}
+	return entries
 }

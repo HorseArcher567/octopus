@@ -7,17 +7,17 @@ import (
 
 // Init init all services.
 func Init(bootConfig map[interface{}]interface{}) {
-	buildEntries(bootConfig)
+	registerEntry(buildEntry(bootConfig)...)
 }
 
-// Start start all services.
+// Start start all services by invoke Entry.Serve.
 func Start(ctx context.Context) {
 	for _, entry := range registeredEntries {
 		go entry.Serve(ctx)
 	}
 }
 
-// Stop stop all services.
+// Stop stop all services by invoke Entry.Stop.
 func Stop(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait()

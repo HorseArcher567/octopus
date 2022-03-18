@@ -9,12 +9,9 @@ import (
 
 const rawYaml = `
 simple:
-  - enabled: true
-    name: grpcServer1
-    address: 0.0.0.0:8081
-  - enabled: false
-    name: grpcServer2
-    address: 127.0.0.1:8082
+    enabled: true
+    name: grpcService
+    address: :8081
 `
 
 func TestBuilder_Build(t *testing.T) {
@@ -23,6 +20,5 @@ func TestBuilder_Build(t *testing.T) {
 	log.Infof("%+v", bootConfig)
 
 	var builder Builder
-	services := builder.Build(bootConfig, "yaml")
-	assert.Equal(t, 1, len(services))
+	assert.NotNil(t, builder.Build(bootConfig, "yaml"))
 }

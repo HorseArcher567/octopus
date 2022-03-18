@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	greeter "github.com/k8s-practice/octopus/example/simple/proto"
-	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,17 +22,12 @@ func TestGreeterServer_Hello(t *testing.T) {
 
 	reply, err := client.Hello(ctx, &greeter.HelloRequest{})
 	assert.Nil(t, err)
-	log.Infoln(reply.Message)
+	assert.Equal(t, "hello", reply.Message)
 }
 
 func TestHttpService(t *testing.T) {
 	reply, err := http.Get("http://localhost:9090/api/v1/greeter")
 	assert.Nil(t, err)
 	body, _ := io.ReadAll(reply.Body)
-	log.Infoln(string(body))
-
-	reply, err = http.Get("http://localhost:9091/api/v1/greeter")
-	assert.Nil(t, err)
-	body, _ = io.ReadAll(reply.Body)
-	log.Infoln(string(body))
+	assert.Equal(t, "hello", string(body))
 }

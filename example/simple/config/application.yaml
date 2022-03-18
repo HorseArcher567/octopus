@@ -1,11 +1,22 @@
-http:
-  - enabled: true
-    name: httpService1
+gin:
+    enabled: true
+    mode: release
+    name: ginService
     address: :9090
-  - enabled: true
-    name: httpService2
-    address: :9091
+http:
+    enabled: true
+    name: httpService
+    address: 9091
 grpc:
-  - enabled: true
-    name: grpcService1
+    enabled: true
+    name: grpcService
     address: :9092
+    prometheus:
+        enabled: true
+        namespace: dev_xlive
+        subsystem: vod
+prometheus:
+    enabled: true
+    name: promService
+    address: :9093
+    path: /metrics

@@ -16,17 +16,18 @@ type Entry interface {
 	Stop(ctx context.Context)
 }
 
-func register(entries ...Entry) {
+func registerEntry(entries ...Entry) {
 	for i := 0; i < len(entries); i++ {
 		if _, ok := registeredEntries[entries[i].Name()]; ok {
-			log.Panicf("repeated register %s service", entries[i].Name())
+			log.Panicf("repeated registerEntry %s service", entries[i].Name())
 		} else {
 			registeredEntries[entries[i].Name()] = entries[i]
 		}
 	}
 }
 
-func Get(name string) Entry {
+// GetEntry get registered entry by name.
+func GetEntry(name string) Entry {
 	if entry, ok := registeredEntries[name]; ok {
 		return entry
 	} else {

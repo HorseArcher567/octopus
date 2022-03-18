@@ -1,8 +1,6 @@
 package structure
 
 import (
-	"github.com/BurntSushi/toml"
-	"github.com/go-redis/redis/v8"
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
@@ -41,67 +39,6 @@ func TestToMap(t *testing.T) {
 	var s1 Student
 	assert.Nil(t, Unmarshal(m, &s1))
 	log.Infoln(s1)
-}
-
-const tomlData = `
-[database]
-host = "172.16.116.50"
-port = 3307
-user = "tars"
-password = "tars2015"
-dbname = "k8s_tenants"
-driver = "mysql"
-
-[redis]
-Address = ["172.16.116.50:9033","172.16.116.50:9034","172.16.116.50:9035"]
-MaxRedirects = 8
-ReadOnly = false
-RouteByLatency = false
-RouteRandomly = false
-
-UserName = ""
-Password = ""
-
-#Duration,1是纳秒单位，1000是微秒，1000000是毫秒，1000000000是秒
-MaxRetries = 0
-MinRetryBackoff = 8_000_000
-MaxRetryBackoff = 512_000_000
-
-DialTimeout = 5_000_000_000
-ReadTimeout = 3_000_000_000
-WriteTimeout = 3_000_000_000
-
-PoolSize = 15
-MinIdleConns = 10
-MaxConnAge = 0
-PoolTimeout = 4_000_000_000
-IdleTimeout = 300_000_000_000
-IdleCheckFrequency = 60_000_000_000
-`
-
-func TestTomlToStruct(t *testing.T) {
-	var m map[string]interface{}
-	_, err := toml.Decode(tomlData, &m)
-	assert.Nil(t, err)
-	log.Infoln(m)
-
-	type SqlConfig struct {
-		Driver   string `mysql:"driver"`
-		TenantId int32  `mysql:"tenant_id"`
-		Host     string `mysql:"host"`
-		Port     uint16 `mysql:"port"`
-		User     string `mysql:"user"`
-		Password string `mysql:"password"`
-		DbName   string `mysql:"db_name"`
-	}
-
-	var sc SqlConfig
-	assert.Nil(t, Unmarshal(m["database"], &sc))
-	log.Infof("%+v", sc)
-
-	var rc redis.ClusterOptions
-	assert.Nil(t, Unmarshal(m["redis"], &rc))
-	log.Infof("%+v", rc)
 }
 
 const yamlData = `

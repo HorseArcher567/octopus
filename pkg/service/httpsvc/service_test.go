@@ -9,12 +9,9 @@ import (
 
 const rawYaml = `
 http:
-  - enabled: true
-    name: httpSvc1
-    address: 0.0.0.0:8080
-  - enabled: false
-    name: httpSvc2
-    address: 127.0.0.1:8081
+    enabled: true
+    name: httpService
+    address: :8080
 `
 
 func TestBuilder_Build(t *testing.T) {
@@ -23,6 +20,5 @@ func TestBuilder_Build(t *testing.T) {
 	log.Infof("%+v", bootConfig)
 
 	var builder Builder
-	services := builder.Build(bootConfig, "yaml")
-	assert.Equal(t, 1, len(services))
+	assert.NotNil(t, builder.Build(bootConfig, "yaml"))
 }
