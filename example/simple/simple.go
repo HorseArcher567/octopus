@@ -7,6 +7,7 @@ import (
 	greeter "github.com/k8s-practice/octopus/example/simple/proto"
 	"github.com/k8s-practice/octopus/pkg/service/ginsvc"
 	"github.com/k8s-practice/octopus/pkg/service/grpcsvc"
+	"github.com/k8s-practice/octopus/pkg/service/httpsvc"
 	"google.golang.org/grpc"
 	"net/http"
 )
@@ -18,7 +19,9 @@ func main() {
 	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 
 	grpcsvc.Register(registerGreeter)
-
+	httpsvc.ServeMux().HandleFunc("/api/v1/greeter", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("hello"))
+	})
 	ginsvc.Router().GET("/api/v1/greeter", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, "hello")
 	})
@@ -33,7 +36,14 @@ type GreeterServer struct {
 func registerGreeter(server *grpc.Server) {
 	greeter.RegisterGreeterServer(server, &GreeterServer{})
 }
+
 func (server *GreeterServer) Hello(context.Context, *greeter.HelloRequest) (*greeter.HelloResponse, error) {
+	return &greeter.HelloResponse{
+		Message: "hello",
+	}, nil
+}
+
+func (server *GreeterServer) Bibi(context.Context, *greeter.HelloRequest) (*greeter.HelloResponse, error) {
 	return &greeter.HelloResponse{
 		Message: "hello",
 	}, nil

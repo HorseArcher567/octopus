@@ -36,13 +36,17 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		name:    conf.Grpc.Name,
 		address: conf.Grpc.Address,
 	}
-	if conf.Grpc.Prometheus.Enabled {
-		singleton.metrics = metrics.NewGrpcServerMetrics(conf.Grpc.Prometheus.Namespace,
-			conf.Grpc.Prometheus.Subsystem)
+	if conf.Grpc.Prometheus.Server.Enabled {
+		singleton.metrics = metrics.NewGrpcServerMetrics(conf.Grpc.Prometheus.Server.Namespace,
+			conf.Grpc.Prometheus.Server.Subsystem)
+		promsvc.MustRegister(singleton.metrics)
 		singleton.server = grpc.NewServer(grpc.StreamInterceptor(singleton.metrics.StreamServerInterceptor()),
 			grpc.UnaryInterceptor(singleton.metrics.UnaryServerInterceptor()))
 		singleton.beforeServe = append(singleton.beforeServe, func() {
-			promsvc.MustRegister(singleton.metrics)
+			if conf.Grpc.Prometheus.Server.CountsHandlingTime {
+				singleton.metrics.EnableCountsHandlingTime()
+			}
+			singleton.metrics.InitializeMetrics(singleton.server)
 		})
 	} else {
 		singleton.server = grpc.NewServer()

@@ -17,28 +17,13 @@ func init() {
 	service.RegisterBuilder(&Builder{})
 }
 
-func MustGetService(name string) *Service {
-	entry := service.GetEntry(name)
-	if entry == nil {
-		log.Panicf("%s service not exist", name)
-		return nil
-	}
-
-	svc, ok := entry.(*Service)
-	if !ok {
-		log.Panicf("%s service isn't a %s", name, reflect.TypeOf(Service{}))
-		return nil
-	}
-	return svc
-}
-
 type Service struct {
 	name    string
 	server  *http.Server
 	address string
 }
 
-func Router() *gin.Engine {
+func Router() gin.IRouter {
 	if singleton != nil {
 		return singleton.server.Handler.(*gin.Engine)
 	} else {

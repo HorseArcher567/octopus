@@ -4,6 +4,7 @@ option go_package = "github.com/k8s-practice/octopus/example/simple/proto/greete
 
 service Greeter {
   rpc Hello (HelloRequest) returns (HelloResponse) {}
+  rpc Bibi (HelloRequest) returns (HelloResponse) {}
 }
 
 message HelloRequest {}

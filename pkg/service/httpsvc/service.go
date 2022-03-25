@@ -2,9 +2,14 @@ package httpsvc
 
 import (
 	"github.com/k8s-practice/octopus/pkg/log"
+	"github.com/k8s-practice/octopus/pkg/prometheus/metrics"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"net/http"
 	"reflect"
+)
+
+var (
+	singleton *Service
 )
 
 func init() {
@@ -12,27 +17,19 @@ func init() {
 	service.RegisterBuilder(&Builder{})
 }
 
-func MustGetService(name string) *Service {
-	entry := service.GetEntry(name)
-	if entry == nil {
-		log.Panicf("%s service not exist", name)
-		return nil
-	}
-
-	svc, ok := entry.(*Service)
-	if !ok {
-		log.Panicf("%s service isn't a %s", name, reflect.TypeOf(Service{}))
-		return nil
-	}
-	return svc
-}
-
 type Service struct {
 	name    string
 	server  *http.Server
 	address string
+
+	metrics *metrics.HttpServerMetrics
 }
 
-func (svc *Service) Mux() *http.ServeMux {
-	return svc.server.Handler.(*http.ServeMux)
+func ServeMux() *http.ServeMux {
+	if singleton != nil {
+		return singleton.server.Handler.(*ServeMuxWrapper).ServeMux
+	} else {
+		log.Panicf("%s uninitialized", reflect.TypeOf(singleton))
+		return nil
+	}
 }
