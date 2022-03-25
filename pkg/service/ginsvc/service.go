@@ -3,6 +3,7 @@ package ginsvc
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/k8s-practice/octopus/pkg/log"
+	"github.com/k8s-practice/octopus/pkg/prometheus/metrics"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"net/http"
 	"reflect"
@@ -21,6 +22,8 @@ type Service struct {
 	name    string
 	server  *http.Server
 	address string
+
+	metrics *metrics.GinServerMetrics
 }
 
 func Router() gin.IRouter {

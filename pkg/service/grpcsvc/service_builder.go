@@ -40,6 +40,7 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		singleton.metrics = metrics.NewGrpcServerMetrics(conf.Grpc.Prometheus.Server.Namespace,
 			conf.Grpc.Prometheus.Server.Subsystem)
 		promsvc.MustRegister(singleton.metrics)
+
 		singleton.server = grpc.NewServer(grpc.StreamInterceptor(singleton.metrics.StreamServerInterceptor()),
 			grpc.UnaryInterceptor(singleton.metrics.UnaryServerInterceptor()))
 		singleton.beforeServe = append(singleton.beforeServe, func() {

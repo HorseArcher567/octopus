@@ -44,6 +44,7 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		singleton.metrics = metrics.NewHttpServerMetrics(conf.Http.Prometheus.Server.Namespace,
 			conf.Http.Prometheus.Server.Subsystem)
 		promsvc.MustRegister(singleton.metrics)
+
 		if conf.Http.Prometheus.Server.CountsHandlingTime {
 			singleton.metrics.EnableCountsHandlingTime()
 		}

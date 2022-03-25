@@ -3,6 +3,12 @@ gin:
   mode: release
   name: ginService
   address: :9090
+  prometheus:
+    server:
+      enabled: true
+      namespace: dev_xlive
+      subsystem: vod
+      countsHandlingTime: true
 http:
   enabled: true
   name: httpService
