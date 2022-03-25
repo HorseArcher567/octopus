@@ -16,7 +16,7 @@ type Config struct {
 		Name       string            `json:"name,omitempty" yaml:"name,omitempty"`
 		Address    string            `json:"address,omitempty" yaml:"address,omitempty"`
 		Prometheus config.Prometheus `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
-	} `json:"simple,omitempty" yaml:"simple,omitempty"`
+	} `json:"grpc,omitempty" yaml:"grpc,omitempty"`
 }
 
 type Builder struct {
