@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/k8s-practice/octopus"
 	greeter "github.com/k8s-practice/octopus/example/simple/proto"
+	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/k8s-practice/octopus/pkg/service/ginsvc"
 	"github.com/k8s-practice/octopus/pkg/service/grpcsvc"
 	"github.com/k8s-practice/octopus/pkg/service/httpsvc"
@@ -13,6 +14,7 @@ import (
 )
 
 func main() {
+	log.SetLevel(log.DebugLevel)
 	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 
 	grpcsvc.Register(registerGreeter)
