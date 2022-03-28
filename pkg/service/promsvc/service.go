@@ -16,6 +16,7 @@ func init() {
 }
 
 type Service struct {
+	enabled bool
 	name    string
 	server  *http.Server
 	address string

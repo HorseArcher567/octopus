@@ -28,13 +28,11 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		log.Panicln(err)
 		return nil
 	}
-	if !conf.Http.Enabled {
-		return nil
-	}
 
 	serveMuxWrapper := newServeMuxWrapper()
 	singleton = &Service{
-		name: conf.Http.Name,
+		enabled: conf.Http.Enabled,
+		name:    conf.Http.Name,
 		server: &http.Server{
 			Handler: serveMuxWrapper,
 		},

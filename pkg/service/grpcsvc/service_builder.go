@@ -28,11 +28,9 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		log.Panicln(err)
 		return nil
 	}
-	if !conf.Grpc.Enabled {
-		return nil
-	}
 
 	singleton = &Service{
+		enabled: conf.Grpc.Enabled,
 		name:    conf.Grpc.Name,
 		address: conf.Grpc.Address,
 	}

@@ -17,25 +17,10 @@ func init() {
 	service.RegisterBuilder(&Builder{})
 }
 
-// MustGetService gets service by name, or panic.
-func MustGetService(name string) *Service {
-	entry := service.GetEntry(name)
-	if entry == nil {
-		log.Panicf("%s service not exist", name)
-		return nil
-	}
-
-	svc, ok := entry.(*Service)
-	if !ok {
-		log.Panicf("%s service isn't a %s", name, reflect.TypeOf(Service{}))
-		return nil
-	}
-	return svc
-}
-
 type BeforeServe func()
 
 type Service struct {
+	enabled bool
 	name    string
 	server  *grpc.Server
 	address string

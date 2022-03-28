@@ -11,6 +11,7 @@ var (
 
 // Entry define service interfaces.
 type Entry interface {
+	Enabled() bool
 	Name() string
 	Serve(ctx context.Context)
 	Stop(ctx context.Context)
@@ -23,14 +24,5 @@ func registerEntry(entries ...Entry) {
 		} else {
 			registeredEntries[entries[i].Name()] = entries[i]
 		}
-	}
-}
-
-// GetEntry get registered entry by name.
-func GetEntry(name string) Entry {
-	if entry, ok := registeredEntries[name]; ok {
-		return entry
-	} else {
-		return nil
 	}
 }

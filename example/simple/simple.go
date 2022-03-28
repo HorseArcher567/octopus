@@ -12,9 +12,6 @@ import (
 	"net/http"
 )
 
-func init() {
-}
-
 func main() {
 	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 

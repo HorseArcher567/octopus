@@ -6,6 +6,10 @@ import (
 	"net"
 )
 
+func (svc *Service) Enabled() bool {
+	return svc.enabled
+}
+
 // Name implements service.Entry interface.
 func (svc *Service) Name() string {
 	return svc.name

@@ -30,9 +30,6 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		log.Panicln(err)
 		return nil
 	}
-	if !conf.Prometheus.Enabled {
-		return nil
-	}
 
 	if len(conf.Prometheus.Path) == 0 {
 		conf.Prometheus.Path = defaultMetricsPath
@@ -40,7 +37,8 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 	mux := http.NewServeMux()
 	mux.Handle(conf.Prometheus.Path, promhttp.Handler())
 	singleton = &Service{
-		name: conf.Prometheus.Name,
+		enabled: conf.Prometheus.Enabled,
+		name:    conf.Prometheus.Name,
 		server: &http.Server{
 			Handler: mux,
 		},

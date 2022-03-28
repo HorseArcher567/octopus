@@ -30,14 +30,12 @@ func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string
 		log.Panicln(err)
 		return nil
 	}
-	if !conf.Gin.Enabled {
-		return nil
-	}
 
 	gin.SetMode(conf.Gin.Mode)
 	engine := gin.New()
 	singleton = &Service{
-		name: conf.Gin.Name,
+		enabled: conf.Gin.Enabled,
+		name:    conf.Gin.Name,
 		server: &http.Server{
 			Handler: engine,
 		},
