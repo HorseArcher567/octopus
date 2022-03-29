@@ -20,6 +20,6 @@ func TestBuilder_Build(t *testing.T) {
 	assert.Nil(t, yaml.Unmarshal([]byte(rawYaml), &bootConfig))
 	log.Infof("%+v", bootConfig)
 
-	var builder Builder
+	var builder builder
 	assert.NotNil(t, builder.Build(bootConfig, "yaml"))
 }

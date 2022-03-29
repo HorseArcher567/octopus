@@ -14,12 +14,11 @@ import (
 )
 
 func main() {
-	log.SetLevel(log.DebugLevel)
 	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 
-	grpcsvc.Register(registerGreeter)
+	grpcsvc.RegisterServer(registerGreeter)
 	httpsvc.ServeMux().HandleFunc("/api/v1/greeter", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("hello"))
+		log.Info(w.Write([]byte("hello")))
 	})
 	ginsvc.Router().GET("/api/v1/greeter", func(ctx *gin.Context) {
 		ctx.String(http.StatusOK, "hello")

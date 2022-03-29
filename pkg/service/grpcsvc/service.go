@@ -9,15 +9,18 @@ import (
 )
 
 var (
-	singleton *Service
+	defaultBuilder = &builder{}
 )
 
 func init() {
 	// auto register builder
-	service.RegisterBuilder(&Builder{})
+	service.RegisterBuilder(defaultBuilder)
 }
 
-type BeforeServe func()
+// RegisterServer registers server to *grpc.Server
+func RegisterServer(f func(*grpc.Server)) {
+	defaultBuilder.service.RegisterServer(f)
+}
 
 type Service struct {
 	enabled bool
@@ -26,16 +29,13 @@ type Service struct {
 	address string
 
 	metrics     *metrics.GrpcServerMetrics
-	beforeServe []BeforeServe
+	beforeServe []func()
 }
 
-type RegisterFunc func(*grpc.Server)
-
-// Register exposes *grpc.Server
-func Register(f RegisterFunc) {
-	if singleton != nil {
-		f(singleton.server)
-	} else {
-		log.Panicf("%s uninitialized", reflect.TypeOf(singleton))
+func (svc *Service) RegisterServer(f func(*grpc.Server)) {
+	if svc == nil {
+		log.Panicf("%s uninitialized", reflect.TypeOf(svc))
+		return
 	}
+	f(svc.server)
 }

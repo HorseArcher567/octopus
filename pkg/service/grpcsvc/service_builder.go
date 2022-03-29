@@ -8,6 +8,7 @@ import (
 	"github.com/k8s-practice/octopus/pkg/service/promsvc"
 	"github.com/k8s-practice/octopus/pkg/util/structure"
 	"google.golang.org/grpc"
+	"sync"
 )
 
 type Config struct {
@@ -19,37 +20,43 @@ type Config struct {
 	} `json:"grpc,omitempty" yaml:"grpc,omitempty"`
 }
 
-type Builder struct {
+type builder struct {
+	sync.Once
+	service *Service
 }
 
-func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
-	var conf Config
-	if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
-		log.Panicln(err)
-		return nil
-	}
+func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
+	b.Do(func() {
+		var conf Config
+		if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
+			log.Panicln(err)
+			return
+		}
 
-	singleton = &Service{
-		enabled: conf.Grpc.Enabled,
-		name:    conf.Grpc.Name,
-		address: conf.Grpc.Address,
-	}
-	if conf.Grpc.Prometheus.Server.Enabled {
-		singleton.metrics = metrics.NewGrpcServerMetrics(conf.Grpc.Prometheus.Server.Namespace,
-			conf.Grpc.Prometheus.Server.Subsystem)
-		promsvc.MustRegister(singleton.metrics)
+		svc := &Service{
+			enabled: conf.Grpc.Enabled,
+			name:    conf.Grpc.Name,
+			address: conf.Grpc.Address,
+		}
+		if conf.Grpc.Prometheus.Server.Enabled {
+			svc.metrics = metrics.NewGrpcServerMetrics(conf.Grpc.Prometheus.Server.Namespace,
+				conf.Grpc.Prometheus.Server.Subsystem)
+			promsvc.MustRegister(svc.metrics)
 
-		singleton.server = grpc.NewServer(grpc.StreamInterceptor(singleton.metrics.StreamServerInterceptor()),
-			grpc.UnaryInterceptor(singleton.metrics.UnaryServerInterceptor()))
-		singleton.beforeServe = append(singleton.beforeServe, func() {
-			if conf.Grpc.Prometheus.Server.CountsHandlingTime {
-				singleton.metrics.EnableCountsHandlingTime()
-			}
-			singleton.metrics.InitializeMetrics(singleton.server)
-		})
-	} else {
-		singleton.server = grpc.NewServer()
-	}
+			svc.server = grpc.NewServer(grpc.StreamInterceptor(svc.metrics.StreamServerInterceptor()),
+				grpc.UnaryInterceptor(svc.metrics.UnaryServerInterceptor()))
+			svc.beforeServe = append(svc.beforeServe, func() {
+				if conf.Grpc.Prometheus.Server.CountsHandlingTime {
+					svc.metrics.EnableCountsHandlingTime()
+				}
+				svc.metrics.InitializeMetrics(svc.server)
+			})
+		} else {
+			svc.server = grpc.NewServer()
+		}
 
-	return singleton
+		b.service = svc
+	})
+
+	return b.service
 }

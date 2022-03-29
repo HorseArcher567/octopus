@@ -10,12 +10,16 @@ import (
 )
 
 var (
-	singleton *Service
+	defaultBuilder = &builder{}
 )
 
 func init() {
 	// auto register builder
-	service.RegisterBuilder(&Builder{})
+	service.RegisterBuilder(defaultBuilder)
+}
+
+func Router() gin.IRouter {
+	return defaultBuilder.service.Router()
 }
 
 type Service struct {
@@ -27,11 +31,10 @@ type Service struct {
 	metrics *metrics.GinServerMetrics
 }
 
-func Router() gin.IRouter {
-	if singleton != nil {
-		return singleton.server.Handler.(*gin.Engine)
-	} else {
-		log.Panicf("%s uninitialized", reflect.TypeOf(singleton))
+func (svc *Service) Router() gin.IRouter {
+	if svc == nil {
+		log.Panicf("%s uninitialized", reflect.TypeOf(svc))
 		return nil
 	}
+	return svc.server.Handler.(*gin.Engine)
 }

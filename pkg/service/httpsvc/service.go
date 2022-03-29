@@ -9,12 +9,16 @@ import (
 )
 
 var (
-	singleton *Service
+	defaultBuilder = &builder{}
 )
 
 func init() {
 	// auto register builder
-	service.RegisterBuilder(&Builder{})
+	service.RegisterBuilder(defaultBuilder)
+}
+
+func ServeMux() *http.ServeMux {
+	return defaultBuilder.service.ServeMux()
 }
 
 type Service struct {
@@ -26,11 +30,10 @@ type Service struct {
 	metrics *metrics.HttpServerMetrics
 }
 
-func ServeMux() *http.ServeMux {
-	if singleton != nil {
-		return singleton.server.Handler.(*ServeMuxWrapper).ServeMux
-	} else {
-		log.Panicf("%s uninitialized", reflect.TypeOf(singleton))
+func (svc *Service) ServeMux() *http.ServeMux {
+	if svc == nil {
+		log.Panicf("%s uninitialized", reflect.TypeOf(svc))
 		return nil
 	}
+	return svc.server.Handler.(*ServeMuxWrapper).ServeMux
 }

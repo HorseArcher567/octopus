@@ -4,15 +4,19 @@ import (
 	"github.com/k8s-practice/octopus/pkg/log"
 	"github.com/k8s-practice/octopus/pkg/service"
 	"github.com/k8s-practice/octopus/pkg/util/structure"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
+	"sync"
 )
 
 const (
 	defaultMetricsPath = "/metrics"
 )
 
-type Builder struct {
+type builder struct {
+	sync.Once
+	service *Service
 }
 
 type Config struct {
@@ -24,27 +28,30 @@ type Config struct {
 	} `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
 }
 
-func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
-	var conf Config
-	if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
-		log.Panicln(err)
-		return nil
-	}
+func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
+	b.Do(func() {
+		var conf Config
+		if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
+			log.Panicln(err)
+			return
+		}
 
-	if len(conf.Prometheus.Path) == 0 {
-		conf.Prometheus.Path = defaultMetricsPath
-	}
-	mux := http.NewServeMux()
-	mux.Handle(conf.Prometheus.Path, promhttp.Handler())
-	singleton = &Service{
-		enabled: conf.Prometheus.Enabled,
-		name:    conf.Prometheus.Name,
-		server: &http.Server{
-			Handler: mux,
-		},
-		address: conf.Prometheus.Address,
-		path:    conf.Prometheus.Path,
-	}
+		if len(conf.Prometheus.Path) == 0 {
+			conf.Prometheus.Path = defaultMetricsPath
+		}
+		mux := http.NewServeMux()
+		mux.Handle(conf.Prometheus.Path, promhttp.Handler())
+		b.service = &Service{
+			enabled: conf.Prometheus.Enabled,
+			name:    conf.Prometheus.Name,
+			server: &http.Server{
+				Handler: mux,
+			},
+			address:    conf.Prometheus.Address,
+			path:       conf.Prometheus.Path,
+			registerer: prometheus.NewRegistry(),
+		}
+	})
 
-	return singleton
+	return b.service
 }

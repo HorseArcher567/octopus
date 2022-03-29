@@ -1,36 +1,37 @@
-gin:
-  enabled: true
-  mode: release
-  name: ginService
-  address: :9090
+service:
+  gin:
+    enabled: true
+    mode: release
+    name: ginService
+    address: :9090
+    prometheus:
+      server:
+        enabled: true
+        namespace: dev_xlive
+        subsystem: vod
+        countsHandlingTime: true
+  http:
+    enabled: true
+    name: httpService
+    address: :9091
+    prometheus:
+      server:
+        enabled: true
+        namespace: dev_xlive
+        subsystem: vod
+        countsHandlingTime: true
+  grpc:
+    enabled: true
+    name: grpcService
+    address: :9092
+    prometheus:
+      server:
+        enabled: true
+        namespace: dev_xlive
+        subsystem: vod
+        countsHandlingTime: true
   prometheus:
-    server:
-      enabled: true
-      namespace: dev_xlive
-      subsystem: vod
-      countsHandlingTime: true
-http:
-  enabled: true
-  name: httpService
-  address: :9091
-  prometheus:
-    server:
-      enabled: true
-      namespace: dev_xlive
-      subsystem: vod
-      countsHandlingTime: true
-grpc:
-  enabled: true
-  name: grpcService
-  address: :9092
-  prometheus:
-    server:
-      enabled: true
-      namespace: dev_xlive
-      subsystem: vod
-      countsHandlingTime: true
-prometheus:
-  enabled: true
-  name: promService
-  address: :9093
-  path: /metrics
+    enabled: true
+    name: promService
+    address: :9093
+    path: /metrics

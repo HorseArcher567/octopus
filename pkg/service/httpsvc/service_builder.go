@@ -8,10 +8,8 @@ import (
 	"github.com/k8s-practice/octopus/pkg/service/promsvc"
 	"github.com/k8s-practice/octopus/pkg/util/structure"
 	"net/http"
+	"sync"
 )
-
-type Builder struct {
-}
 
 type Config struct {
 	Http struct {
@@ -22,32 +20,41 @@ type Config struct {
 	} `json:"http,omitempty" yaml:"http,omitempty"`
 }
 
-func (builder *Builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
-	var conf Config
-	if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
-		log.Panicln(err)
-		return nil
-	}
+type builder struct {
+	sync.Once
+	service *Service
+}
 
-	serveMuxWrapper := newServeMuxWrapper()
-	singleton = &Service{
-		enabled: conf.Http.Enabled,
-		name:    conf.Http.Name,
-		server: &http.Server{
-			Handler: serveMuxWrapper,
-		},
-		address: conf.Http.Address,
-	}
-	if conf.Http.Prometheus.Server.Enabled {
-		singleton.metrics = metrics.NewHttpServerMetrics(conf.Http.Prometheus.Server.Namespace,
-			conf.Http.Prometheus.Server.Subsystem)
-		promsvc.MustRegister(singleton.metrics)
-
-		if conf.Http.Prometheus.Server.CountsHandlingTime {
-			singleton.metrics.EnableCountsHandlingTime()
+func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) service.Entry {
+	b.Do(func() {
+		var conf Config
+		if err := structure.UnmarshalWithTag(bootConfig, &conf, tag); err != nil {
+			log.Panicln(err)
+			return
 		}
-		serveMuxWrapper.Use(singleton.metrics.Interceptor())
-	}
 
-	return singleton
+		serveMuxWrapper := newServeMuxWrapper()
+		svc := &Service{
+			enabled: conf.Http.Enabled,
+			name:    conf.Http.Name,
+			server: &http.Server{
+				Handler: serveMuxWrapper,
+			},
+			address: conf.Http.Address,
+		}
+		if conf.Http.Prometheus.Server.Enabled {
+			svc.metrics = metrics.NewHttpServerMetrics(conf.Http.Prometheus.Server.Namespace,
+				conf.Http.Prometheus.Server.Subsystem)
+			promsvc.MustRegister(svc.metrics)
+
+			if conf.Http.Prometheus.Server.CountsHandlingTime {
+				svc.metrics.EnableCountsHandlingTime()
+			}
+			serveMuxWrapper.Use(svc.metrics.Interceptor())
+		}
+
+		b.service = svc
+	})
+
+	return b.service
 }

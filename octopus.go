@@ -81,7 +81,11 @@ func (app *application) initBootConfig() {
 }
 
 func (app *application) initService() {
-	service.Init(app.bootConfig)
+	if i, ok := app.bootConfig["service"]; ok {
+		if v, ok := i.(map[interface{}]interface{}); ok {
+			service.Init(v)
+		}
+	}
 }
 
 func (app *application) startService() {
