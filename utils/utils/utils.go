@@ -29,7 +29,9 @@ func Sha512(raw []byte) string {
 }
 
 func Hmac(h func() hash.Hash, key, raw []byte) string {
-	return fmt.Sprintf("%x", hmac.New(h, key).Sum(raw))
+	mac := hmac.New(h, key)
+	mac.Write(raw)
+	return fmt.Sprintf("%x", mac.Sum(nil))
 }
 
 func HmacSha1(key, raw []byte) string {
