@@ -32,10 +32,10 @@ type Service struct {
 	beforeServe []func()
 }
 
-func (svc *Service) RegisterServer(f func(*grpc.Server)) {
+func (svc *Service) RegisterServer(fn func(*grpc.Server)) {
 	if svc == nil {
 		log.Panicf("%s uninitialized", reflect.TypeOf(svc))
 		return
 	}
-	f(svc.server)
+	fn(svc.server)
 }

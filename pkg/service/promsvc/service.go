@@ -28,7 +28,7 @@ type Service struct {
 	address string
 	path    string
 
-	registerer prometheus.Registerer
+	registry *prometheus.Registry
 }
 
 func (svc *Service) MustRegister(collectors ...prometheus.Collector) {
@@ -36,5 +36,5 @@ func (svc *Service) MustRegister(collectors ...prometheus.Collector) {
 		log.Panicf("%s uninitialized", reflect.TypeOf(svc))
 		return
 	}
-	svc.registerer.MustRegister(collectors...)
+	svc.registry.MustRegister(collectors...)
 }

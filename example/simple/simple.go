@@ -16,7 +16,9 @@ import (
 func main() {
 	octopus.Init(octopus.WithConfigPath("./config/application.yaml"))
 
-	grpcsvc.RegisterServer(registerGreeter)
+	grpcsvc.RegisterServer(func(server *grpc.Server) {
+		greeter.RegisterGreeterServer(server, &GreeterServer{})
+	})
 	httpsvc.ServeMux().HandleFunc("/api/v1/greeter", func(w http.ResponseWriter, r *http.Request) {
 		log.Info(w.Write([]byte("hello")))
 	})
@@ -29,10 +31,6 @@ func main() {
 
 type GreeterServer struct {
 	greeter.UnimplementedGreeterServer
-}
-
-func registerGreeter(server *grpc.Server) {
-	greeter.RegisterGreeterServer(server, &GreeterServer{})
 }
 
 func (server *GreeterServer) Hello(context.Context, *greeter.HelloRequest) (*greeter.HelloResponse, error) {

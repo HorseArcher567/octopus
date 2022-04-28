@@ -40,17 +40,19 @@ func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) serv
 			conf.Prometheus.Path = defaultMetricsPath
 		}
 		mux := http.NewServeMux()
-		mux.Handle(conf.Prometheus.Path, promhttp.Handler())
-		b.service = &Service{
+		svc := &Service{
 			enabled: conf.Prometheus.Enabled,
 			name:    conf.Prometheus.Name,
 			server: &http.Server{
 				Handler: mux,
 			},
-			address:    conf.Prometheus.Address,
-			path:       conf.Prometheus.Path,
-			registerer: prometheus.NewRegistry(),
+			address:  conf.Prometheus.Address,
+			path:     conf.Prometheus.Path,
+			registry: prometheus.NewRegistry(),
 		}
+		mux.Handle(conf.Prometheus.Path, promhttp.HandlerFor(svc.registry, promhttp.HandlerOpts{}))
+
+		b.service = svc
 	})
 
 	return b.service
