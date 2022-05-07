@@ -13,6 +13,7 @@ type ClientPool struct {
 	clients map[string]*grpc.ClientConn
 }
 
+// New returns a ClientPool pointer.
 func New(opts ...grpc.DialOption) *ClientPool {
 	cp := &ClientPool{
 		dialOptions: make([]grpc.DialOption, 0, 16),
@@ -23,14 +24,13 @@ func New(opts ...grpc.DialOption) *ClientPool {
 	return cp
 }
 
-func (cp *ClientPool) GetClient(target string) (*grpc.ClientConn, error) {
-	cp.mu.RLock()
-	if client, ok := cp.clients[target]; ok {
-		cp.mu.RUnlock()
-		return client, nil
+func (cp *ClientPool) PrepareClient(target string) {
+	if client, err := cp.newClient(target); err == nil {
+		cp.clients[target] = client
 	}
-	cp.mu.RUnlock()
+}
 
+func (cp *ClientPool) GetClient(target string) (*grpc.ClientConn, error) {
 	return cp.newClient(target)
 }
 
@@ -45,6 +45,13 @@ func (cp *ClientPool) MustGetClient(target string) *grpc.ClientConn {
 }
 
 func (cp *ClientPool) newClient(target string) (*grpc.ClientConn, error) {
+	cp.mu.RLock()
+	if client, ok := cp.clients[target]; ok {
+		cp.mu.RUnlock()
+		return client, nil
+	}
+	cp.mu.RUnlock()
+
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
@@ -62,6 +69,6 @@ func (cp *ClientPool) DelClient(target string) {
 
 	if client, ok := cp.clients[target]; ok {
 		delete(cp.clients, target)
-		client.Close()
+		_ = client.Close()
 	}
 }
