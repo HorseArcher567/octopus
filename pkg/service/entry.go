@@ -9,7 +9,7 @@ var (
 	registeredEntries = make(map[string]Entry)
 )
 
-// Entry define service interfaces.
+// Entry declares service interfaces.
 type Entry interface {
 	Enabled() bool
 	Name() string

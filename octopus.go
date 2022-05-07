@@ -30,7 +30,7 @@ func Init(options ...Option) {
 }
 
 func Run() {
-	defaultApp.Run()
+	defaultApp.run()
 }
 
 type application struct {
@@ -53,7 +53,7 @@ func WithConfigPath(path string) Option {
 	}
 }
 
-func (app *application) Run() {
+func (app *application) run() {
 	// start all services
 	app.startService()
 	// waiting for interrupt signal
