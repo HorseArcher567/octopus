@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	greeter "github.com/k8s-practice/octopus/example/simple/proto"
+	"github.com/k8s-practice/octopus/pkg/grpc/connpool"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -12,9 +13,10 @@ import (
 	"time"
 )
 
+var connPool = connpool.New(grpc.WithTransportCredentials(insecure.NewCredentials()))
+
 func TestGreeterServer_Hello(t *testing.T) {
-	conn, err := grpc.Dial("localhost:9092", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	assert.Nil(t, err)
+	conn := connPool.MustGetConn("localhost:9092")
 
 	client := greeter.NewGreeterClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
