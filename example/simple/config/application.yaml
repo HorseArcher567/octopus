@@ -10,6 +10,8 @@ service:
         namespace: dev_xlive
         subsystem: vod
         countsHandlingTime: true
+    openTelemetry:
+      enabled: true
   http:
     enabled: true
     name: httpService
@@ -20,6 +22,8 @@ service:
         namespace: dev_xlive
         subsystem: vod
         countsHandlingTime: true
+    openTelemetry:
+      enabled: true
   grpc:
     enabled: true
     name: grpcService
@@ -30,8 +34,18 @@ service:
         namespace: dev_xlive
         subsystem: vod
         countsHandlingTime: true
+    openTelemetry:
+      enabled: true
   prometheus:
     enabled: true
     name: promService
     address: :9093
     path: /metrics
+  openTelemetry:
+    enabled: true
+    name: otelService
+    namespace: dev_xlive
+    service: gate
+    spanExporter:
+      name: jaeger
+      collectorEndpoint: http://localhost:14268/api/traces

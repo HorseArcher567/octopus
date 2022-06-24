@@ -9,8 +9,13 @@ import (
 	"github.com/k8s-practice/octopus/pkg/service/ginsvc"
 	"github.com/k8s-practice/octopus/pkg/service/grpcsvc"
 	"github.com/k8s-practice/octopus/pkg/service/httpsvc"
+	_ "github.com/k8s-practice/octopus/pkg/service/otelsvc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -33,7 +38,12 @@ type GreeterServer struct {
 	greeter.UnimplementedGreeterServer
 }
 
-func (server *GreeterServer) Hello(context.Context, *greeter.HelloRequest) (*greeter.HelloResponse, error) {
+func (server *GreeterServer) Hello(ctx context.Context, _ *greeter.HelloRequest) (*greeter.HelloResponse, error) {
+	_, span := otel.Tracer("greeter-hello").Start(ctx, "workHard",
+		trace.WithAttributes(attribute.String("extra.key", "extra.value")))
+	time.Sleep(3 * time.Second)
+	defer span.End()
+
 	return &greeter.HelloResponse{
 		Message: "hello",
 	}, nil
