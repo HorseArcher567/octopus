@@ -24,7 +24,7 @@ func main() {
 	grpcsvc.RegisterServer(func(server *grpc.Server) {
 		greeter.RegisterGreeterServer(server, &GreeterServer{})
 	})
-	httpsvc.ServeMux().HandleFunc("/api/v1/greeter", func(w http.ResponseWriter, r *http.Request) {
+	httpsvc.HandleFunc("/api/v1/greeter", func(w http.ResponseWriter, r *http.Request) {
 		log.Info(w.Write([]byte("hello")))
 	})
 	ginsvc.Router().GET("/api/v1/greeter", func(ctx *gin.Context) {
@@ -41,8 +41,11 @@ type GreeterServer struct {
 func (server *GreeterServer) Hello(ctx context.Context, _ *greeter.HelloRequest) (*greeter.HelloResponse, error) {
 	_, span := otel.Tracer("greeter-hello").Start(ctx, "workHard",
 		trace.WithAttributes(attribute.String("extra.key", "extra.value")))
-	time.Sleep(3 * time.Second)
 	defer span.End()
+
+	span.AddEvent("start sleep")
+	time.Sleep(time.Millisecond)
+	span.AddEvent("wake up")
 
 	return &greeter.HelloResponse{
 		Message: "hello",

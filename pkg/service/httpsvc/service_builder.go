@@ -13,10 +13,11 @@ import (
 
 type Config struct {
 	Http struct {
-		Enabled    bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-		Name       string            `json:"name,omitempty" yaml:"name,omitempty"`
-		Address    string            `json:"address,omitempty" yaml:"address,omitempty"`
-		Prometheus config.Prometheus `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
+		Enabled              bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+		Name                 string `json:"name,omitempty" yaml:"name,omitempty"`
+		Address              string `json:"address,omitempty" yaml:"address,omitempty"`
+		config.Prometheus    `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
+		config.OpenTelemetry `json:"openTelemetry,omitempty" yaml:"openTelemetry,omitempty"`
 	} `json:"http,omitempty" yaml:"http,omitempty"`
 }
 
@@ -42,6 +43,11 @@ func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) serv
 			},
 			address: conf.Http.Address,
 		}
+
+		if conf.Http.OpenTelemetry.Enabled {
+			serveMuxWrapper.EnableTrace()
+		}
+
 		if conf.Http.Prometheus.Server.Enabled {
 			svc.metrics = metrics.NewHttpServerMetrics(conf.Http.Prometheus.Server.Namespace,
 				conf.Http.Prometheus.Server.Subsystem)

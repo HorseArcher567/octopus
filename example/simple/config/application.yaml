@@ -45,7 +45,7 @@ service:
     enabled: true
     name: otelService
     namespace: dev_xlive
-    service: gate
+    service: simple
     spanExporter:
       name: jaeger
       collectorEndpoint: http://localhost:14268/api/traces

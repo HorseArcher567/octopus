@@ -14,11 +14,11 @@ import (
 
 type Config struct {
 	Gin struct {
-		Enabled    bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-		Mode       string            `json:"mode,omitempty" yaml:"mode,omitempty"`
-		Name       string            `json:"name,omitempty" yaml:"name,omitempty"`
-		Address    string            `json:"address,omitempty" yaml:"address,omitempty"`
-		Prometheus config.Prometheus `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
+		Enabled           bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+		Mode              string `json:"mode,omitempty" yaml:"mode,omitempty"`
+		Name              string `json:"name,omitempty" yaml:"name,omitempty"`
+		Address           string `json:"address,omitempty" yaml:"address,omitempty"`
+		config.Prometheus `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
 	} `json:"gin,omitempty" yaml:"gin,omitempty"`
 }
 

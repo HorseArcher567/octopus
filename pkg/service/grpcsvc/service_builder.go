@@ -14,11 +14,11 @@ import (
 
 type Config struct {
 	Grpc struct {
-		Enabled       bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-		Name          string               `json:"name,omitempty" yaml:"name,omitempty"`
-		Address       string               `json:"address,omitempty" yaml:"address,omitempty"`
-		Prometheus    config.Prometheus    `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
-		OpenTelemetry config.OpenTelemetry `json:"openTelemetry,omitempty" yaml:"openTelemetry,omitempty"`
+		Enabled              bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+		Name                 string `json:"name,omitempty" yaml:"name,omitempty"`
+		Address              string `json:"address,omitempty" yaml:"address,omitempty"`
+		config.Prometheus    `json:"prometheus,omitempty" yaml:"prometheus,omitempty"`
+		config.OpenTelemetry `json:"openTelemetry,omitempty" yaml:"openTelemetry,omitempty"`
 	} `json:"grpc,omitempty" yaml:"grpc,omitempty"`
 }
 

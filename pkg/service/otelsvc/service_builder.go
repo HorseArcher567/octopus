@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdkTrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/semconv/v1.10.0"
 	"sync"
 )
@@ -51,14 +51,14 @@ func (b *builder) Build(bootConfig map[interface{}]interface{}, tag string) serv
 				return
 			}
 
-			tp := trace.NewTracerProvider(
-				trace.WithResource(resource.NewWithAttributes(
+			tp := sdkTrace.NewTracerProvider(
+				sdkTrace.WithResource(resource.NewWithAttributes(
 					semconv.SchemaURL,
 					semconv.ServiceNamespaceKey.String(conf.OpenTelemetry.Namespace),
 					semconv.ServiceNameKey.String(conf.OpenTelemetry.Service),
 				)),
-				trace.WithSampler(trace.AlwaysSample()),
-				trace.WithSyncer(exporter),
+				sdkTrace.WithSampler(sdkTrace.ParentBased(sdkTrace.AlwaysSample())),
+				sdkTrace.WithSyncer(exporter),
 			)
 			otel.SetTracerProvider(tp)
 			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(

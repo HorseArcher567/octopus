@@ -1,11 +1,15 @@
 package httpsvc
 
-import "net/http"
+import (
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"net/http"
+)
 
 type Interceptor func(w http.ResponseWriter, r *http.Request, handler http.Handler)
 
 type ServeMuxWrapper struct {
 	*http.ServeMux
+	enableTrace        bool
 	chainedInterceptor Interceptor
 }
 
@@ -15,12 +19,25 @@ func newServeMuxWrapper() *ServeMuxWrapper {
 	}
 }
 
+func (mux *ServeMuxWrapper) HandleFunc(pattern string, handler func(w http.ResponseWriter, r *http.Request)) {
+	if mux.enableTrace {
+		h := otelhttp.NewHandler(http.HandlerFunc(handler), pattern)
+		mux.ServeMux.HandleFunc(pattern, h.ServeHTTP)
+	} else {
+		mux.ServeMux.HandleFunc(pattern, handler)
+	}
+}
+
 func (mux *ServeMuxWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if mux.chainedInterceptor == nil {
 		mux.ServeMux.ServeHTTP(w, r)
 	} else {
 		mux.chainedInterceptor(w, r, mux.ServeMux)
 	}
+}
+
+func (mux *ServeMuxWrapper) EnableTrace() {
+	mux.enableTrace = true
 }
 
 func (mux *ServeMuxWrapper) Use(interceptors ...Interceptor) {
