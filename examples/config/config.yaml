@@ -1,0 +1,9 @@
+App:
+  Name: MyWebApp
+  Port: 8080
+
+Database:
+  Host: ${DB_HOST:localhost}
+  Port: ${DB_PORT:3306}
+  User: ${DB_USER:root}
+
