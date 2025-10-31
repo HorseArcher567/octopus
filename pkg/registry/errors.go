@@ -6,7 +6,6 @@ var (
 	// 配置相关错误
 	ErrEmptyEndpoints   = errors.New("etcd endpoints cannot be empty")
 	ErrEmptyServiceName = errors.New("service name cannot be empty")
-	ErrEmptyInstanceID  = errors.New("instance ID cannot be empty")
 	ErrInvalidTTL       = errors.New("TTL must be at least 10 seconds")
 
 	// 运行时错误

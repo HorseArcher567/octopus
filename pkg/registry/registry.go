@@ -61,7 +61,7 @@ func NewRegistry(cfg *Config, instance *ServiceInstance) (*Registry, error) {
 		client:    client,
 		config:    cfg,
 		instance:  instance,
-		key:       fmt.Sprintf("/services/%s/%s", cfg.ServiceName, cfg.InstanceID),
+		key:       fmt.Sprintf("/services/%s/%s:%d", cfg.ServiceName, instance.Addr, instance.Port),
 		closeChan: make(chan struct{}),
 	}, nil
 }
@@ -267,7 +267,7 @@ func (r *Registry) GetStatus() map[string]interface{} {
 		"ttl":          r.ttl,
 		"key":          r.key,
 		"service_name": r.config.ServiceName,
-		"instance_id":  r.config.InstanceID,
+		"instance":     fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
 		"healthy":      r.IsHealthy(),
 	}
 }

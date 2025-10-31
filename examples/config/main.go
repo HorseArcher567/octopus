@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"octopus/pkg/config"
 	"os"
+
+	"github.com/HorseArcher567/octopus/pkg/config"
 )
 
 // Config 应用配置结构

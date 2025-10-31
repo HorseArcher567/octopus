@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"octopus/pkg/registry"
+	"github.com/HorseArcher567/octopus/pkg/registry"
 )
 
 // ServerConfig 服务端配置
@@ -105,7 +105,6 @@ func (s *Server) registerToEtcd() error {
 	cfg := registry.DefaultConfig()
 	cfg.EtcdEndpoints = s.config.EtcdAddr
 	cfg.ServiceName = s.config.Name
-	cfg.InstanceID = s.getInstanceID()
 	if s.config.TTL > 0 {
 		cfg.TTL = s.config.TTL
 	}
@@ -120,7 +119,7 @@ func (s *Server) registerToEtcd() error {
 	}
 
 	s.registry = reg
-	log.Printf("Service registered: %s (instance: %s)", s.config.Name, cfg.InstanceID)
+	log.Printf("Service registered: %s (instance: %s:%d)", s.config.Name, s.config.Host, s.config.Port)
 	return nil
 }
 
@@ -155,13 +154,4 @@ func (s *Server) Stop() {
 		s.registry.Unregister(ctx)
 	}
 	s.grpcServer.GracefulStop()
-}
-
-// getInstanceID 获取实例 ID
-func (s *Server) getInstanceID() string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return fmt.Sprintf("%s-%d", s.config.Name, time.Now().Unix())
-	}
-	return hostname
 }

@@ -1,8 +1,10 @@
-module octopus
+module github.com/HorseArcher567/octopus
 
 go 1.24.0
 
 toolchain go1.24.4
+
+//replace github.com/HorseArcher567/octopus => ./
 
 require (
 	github.com/BurntSushi/toml v1.5.0

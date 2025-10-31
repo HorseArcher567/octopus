@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"octopus/cmd/octopus-cli/generator"
+	"github.com/HorseArcher567/octopus/cmd/octopus-cli/generator"
 
 	"github.com/spf13/cobra"
 )

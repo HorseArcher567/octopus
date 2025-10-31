@@ -22,7 +22,6 @@ type Config struct {
 
 	// 服务配置
 	ServiceName string // 服务名称
-	InstanceID  string // 实例ID（唯一标识）
 	TTL         int64  // 租约TTL（秒）
 
 	// 认证配置（可选）
@@ -46,9 +45,6 @@ func (c *Config) Validate() error {
 	}
 	if c.ServiceName == "" {
 		return ErrEmptyServiceName
-	}
-	if c.InstanceID == "" {
-		return ErrEmptyInstanceID
 	}
 	if c.TTL < 10 {
 		return ErrInvalidTTL

@@ -7,15 +7,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/resolver"
 
-	"octopus/pkg/resolver"
+	"github.com/HorseArcher567/octopus/pkg/rpc/internal"
 )
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
 	ServiceName string   // 服务名称
 	EtcdAddr    []string // etcd 地址
-	Timeout     int      // 超时时间（毫秒）
 
 	// 可选配置
 	EnableKeepalive bool // 是否启用 keepalive
@@ -24,19 +24,13 @@ type ClientConfig struct {
 // NewClient 创建 RPC 客户端（自动服务发现）
 func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	// 1. 注册 etcd resolver
-	builder := resolver.NewBuilder(config.EtcdAddr)
+	builder := internal.NewBuilder(config.EtcdAddr)
 	resolver.Register(builder)
 
 	// 2. 构建默认选项
 	defaultOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
-	}
-
-	// 超时配置
-	if config.Timeout > 0 {
-		timeout := time.Duration(config.Timeout) * time.Millisecond
-		defaultOpts = append(defaultOpts, grpc.WithTimeout(timeout))
 	}
 
 	// Keepalive 配置
@@ -54,7 +48,7 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 
 	// 3. 创建连接
 	target := fmt.Sprintf("etcd:///%s", config.ServiceName)
-	conn, err := grpc.Dial(target, opts...)
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", config.ServiceName, err)
 	}
@@ -77,7 +71,7 @@ func NewClientWithEndpoints(endpoints []string, opts ...grpc.DialOption) (*grpc.
 	opts = append(defaultOpts, opts...)
 
 	// 创建连接（直连第一个地址）
-	conn, err := grpc.Dial(endpoints[0], opts...)
+	conn, err := grpc.NewClient(endpoints[0], opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", endpoints[0], err)
 	}

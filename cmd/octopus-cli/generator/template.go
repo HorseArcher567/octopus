@@ -27,8 +27,8 @@ import (
 	"{{.Module}}/proto/pb"
 
 	"google.golang.org/grpc"
-	"octopus/pkg/config"
-	"octopus/pkg/rpc"
+	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/rpc"
 )
 
 func main() {
@@ -65,7 +65,7 @@ func main() {
 func generateConfig(projectDir string, data TemplateData) error {
 	tmpl := `package config
 
-import "octopus/pkg/rpc"
+import "github.com/HorseArcher567/octopus/pkg/rpc"
 
 // Config 服务配置
 type Config struct {
@@ -255,7 +255,22 @@ Thumbs.db
 
 // initGoMod 初始化 go.mod
 func initGoMod(projectDir, module string) error {
+	// 初始化 go.mod
 	cmd := exec.Command("go", "mod", "init", module)
+	cmd.Dir = projectDir
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// 添加 octopus 依赖
+	cmd = exec.Command("go", "get", "github.com/HorseArcher567/octopus@latest")
+	cmd.Dir = projectDir
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// 整理依赖
+	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = projectDir
 	return cmd.Run()
 }
@@ -280,4 +295,3 @@ func writeFromTemplate(path, tmplStr string, data interface{}) error {
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
-`

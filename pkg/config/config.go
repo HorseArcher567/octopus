@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	"octopus/pkg/mapstruct"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/HorseArcher567/octopus/pkg/mapstruct"
 )
 
 // Config 配置管理器

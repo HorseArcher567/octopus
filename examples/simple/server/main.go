@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"octopus/pkg/registry"
+	"github.com/HorseArcher567/octopus/pkg/registry"
 )
 
 func main() {
@@ -30,7 +30,6 @@ func main() {
 		"localhost:2381",
 		"localhost:2383"}
 	cfg.ServiceName = "user-service"
-	cfg.InstanceID = "instance-002"
 
 	// 3. 创建注册器
 	reg, err := registry.NewRegistry(cfg, instance)

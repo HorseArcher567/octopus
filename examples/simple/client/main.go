@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"octopus/pkg/registry"
+	"github.com/HorseArcher567/octopus/pkg/registry"
 )
 
 func main() {
