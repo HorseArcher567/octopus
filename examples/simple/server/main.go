@@ -29,7 +29,7 @@ func main() {
 	cfg.EtcdEndpoints = []string{"localhost:2379",
 		"localhost:2381",
 		"localhost:2383"}
-	cfg.ServiceName = "user-service"
+	cfg.AppName = "user-service"
 
 	// 3. 创建注册器
 	reg, err := registry.NewRegistry(cfg, instance)
@@ -42,11 +42,11 @@ func main() {
 	if err := reg.Register(context.Background()); err != nil {
 		log.Fatalf("Failed to register service: %v", err)
 	}
-	log.Println("Service registered successfully")
+	log.Println("Application registered successfully")
 
 	// 5. 这里可以启动你的实际业务服务
 	// 例如：启动gRPC服务器、HTTP服务器等
-	log.Println("Service is running...")
+	log.Println("Application is running...")
 
 	// 6. 等待退出信号
 	sigChan := make(chan os.Signal, 1)

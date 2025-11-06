@@ -61,7 +61,7 @@ func NewRegistry(cfg *Config, instance *ServiceInstance) (*Registry, error) {
 		client:    client,
 		config:    cfg,
 		instance:  instance,
-		key:       fmt.Sprintf("/services/%s/%s:%d", cfg.ServiceName, instance.Addr, instance.Port),
+		key:       fmt.Sprintf("/octopus/applications/%s/%s:%d", cfg.AppName, instance.Addr, instance.Port),
 		closeChan: make(chan struct{}),
 	}, nil
 }
@@ -109,7 +109,7 @@ func (r *Registry) Register(ctx context.Context) error {
 	r.registered = true
 	r.mu.Unlock()
 
-	log.Printf("Service registered: %s (LeaseID: %d, TTL: %ds)", r.key, r.leaseID, r.ttl)
+	log.Printf("Application registered: %s (LeaseID: %d, TTL: %ds)", r.key, r.leaseID, r.ttl)
 	return nil
 }
 
@@ -262,12 +262,12 @@ func (r *Registry) GetStatus() map[string]interface{} {
 	defer r.mu.RUnlock()
 
 	return map[string]interface{}{
-		"registered":   r.registered,
-		"lease_id":     r.leaseID,
-		"ttl":          r.ttl,
-		"key":          r.key,
-		"service_name": r.config.ServiceName,
-		"instance":     fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
-		"healthy":      r.IsHealthy(),
+		"registered": r.registered,
+		"lease_id":   r.leaseID,
+		"ttl":        r.ttl,
+		"key":        r.key,
+		"app_name":   r.config.AppName,
+		"instance":   fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
+		"healthy":    r.IsHealthy(),
 	}
 }

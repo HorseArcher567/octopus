@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/HorseArcher567/octopus/pkg/registry"
@@ -20,82 +18,44 @@ import (
 
 // ServerConfig 服务端配置
 type ServerConfig struct {
-	Name     string   // 服务名称
-	Host     string   // 监听地址
-	Port     int      // 监听端口
-	EtcdAddr []string // etcd 地址
-	TTL      int64    // 租约时间（秒）
-
-	// 可选配置
-	EnableReflection bool // 是否启用反射（开发环境使用）
-	EnableHealth     bool // 是否启用健康检查
+	AppName          string   // 应用名称
+	Host             string   // 监听地址
+	Port             int      // 监听端口
+	EtcdAddr         []string // etcd 地址（可选，留空则不注册到服务发现）
+	TTL              int64    // 租约时间（秒，默认 60）
+	EnableReflection bool     // 是否启用反射（推荐开发/测试环境启用，便于 grpcurl/grpcui 调试）
 }
 
 // Server RPC 服务器封装
 type Server struct {
-	config       *ServerConfig
-	grpcServer   *grpc.Server
-	registry     *registry.Registry
-	listener     net.Listener
-	healthServer *health.Server // 健康检查服务器
-	serviceNames []string       // 已注册的服务名称列表
+	config     *ServerConfig
+	grpcServer *grpc.Server
+	registry   *registry.Registry
+	listener   net.Listener
 }
 
 // NewServer 创建 RPC 服务器
 func NewServer(config *ServerConfig, opts ...grpc.ServerOption) *Server {
-	s := &Server{
-		config:       config,
-		grpcServer:   grpc.NewServer(opts...),
-		serviceNames: make([]string, 0),
+	return &Server{
+		config:     config,
+		grpcServer: grpc.NewServer(opts...),
 	}
-
-	// 如果启用健康检查，创建健康检查服务器
-	if config.EnableHealth {
-		s.healthServer = health.NewServer()
-	}
-
-	return s
 }
 
-// RegisterService 注册 gRPC 服务
-// 支持多次调用以注册多个服务
-// serviceName 参数可选，用于健康检查。如果不提供，使用统一的服务名
-func (s *Server) RegisterService(registerFunc func(*grpc.Server), serviceName ...string) {
+// RegisterService 注册 gRPC 服务（支持多次调用以注册多个服务）
+func (s *Server) RegisterService(registerFunc func(*grpc.Server)) {
 	registerFunc(s.grpcServer)
-
-	// 记录服务名称（用于健康检查）
-	if len(serviceName) > 0 && serviceName[0] != "" {
-		s.serviceNames = append(s.serviceNames, serviceName[0])
-	}
 }
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	// 1. 设置健康检查
-	if s.config.EnableHealth && s.healthServer != nil {
-		// 为每个已注册的服务设置健康状态
-		if len(s.serviceNames) > 0 {
-			for _, name := range s.serviceNames {
-				s.healthServer.SetServingStatus(name, grpc_health_v1.HealthCheckResponse_SERVING)
-				log.Printf("Health check enabled for service: %s", name)
-			}
-		} else {
-			// 如果没有指定服务名，使用统一的服务名
-			s.healthServer.SetServingStatus(s.config.Name, grpc_health_v1.HealthCheckResponse_SERVING)
-			log.Printf("Health check enabled for service: %s", s.config.Name)
-		}
-		// 同时设置空字符串（代表整个服务器的健康状态）
-		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-		grpc_health_v1.RegisterHealthServer(s.grpcServer, s.healthServer)
-	}
-
-	// 2. 启用反射（方便使用 grpcurl 等工具调试）
+	// 1. 启用反射（如果配置了）
 	if s.config.EnableReflection {
 		reflection.Register(s.grpcServer)
 		log.Println("gRPC reflection enabled")
 	}
 
-	// 3. 创建监听器
+	// 2. 创建监听器
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -103,14 +63,14 @@ func (s *Server) Start() error {
 	}
 	s.listener = lis
 
-	// 4. 注册服务到 etcd
+	// 3. 注册服务到 etcd（如果配置了）
 	if len(s.config.EtcdAddr) > 0 {
 		if err := s.registerToEtcd(); err != nil {
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 	}
 
-	// 5. 启动 gRPC 服务器
+	// 4. 启动 gRPC 服务器
 	log.Printf("Starting RPC server at %s", addr)
 	go func() {
 		if err := s.grpcServer.Serve(lis); err != nil {
@@ -118,7 +78,7 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// 6. 等待退出信号
+	// 5. 等待退出信号
 	s.waitForShutdown()
 
 	return nil
@@ -133,7 +93,7 @@ func (s *Server) registerToEtcd() error {
 
 	cfg := registry.DefaultConfig()
 	cfg.EtcdEndpoints = s.config.EtcdAddr
-	cfg.ServiceName = s.config.Name
+	cfg.AppName = s.config.AppName
 	if s.config.TTL > 0 {
 		cfg.TTL = s.config.TTL
 	}
@@ -148,7 +108,7 @@ func (s *Server) registerToEtcd() error {
 	}
 
 	s.registry = reg
-	log.Printf("Service registered: %s (instance: %s:%d)", s.config.Name, s.config.Host, s.config.Port)
+	log.Printf("Application registered: %s (instance: %s:%d)", s.config.AppName, s.config.Host, s.config.Port)
 	return nil
 }
 

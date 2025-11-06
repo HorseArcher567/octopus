@@ -14,10 +14,10 @@ import (
 
 // Discovery 服务发现器
 type Discovery struct {
-	client      *clientv3.Client
-	serviceName string
-	instances   map[string]*ServiceInstance
-	mu          sync.RWMutex
+	client    *clientv3.Client
+	appName   string
+	instances map[string]*ServiceInstance
+	mu        sync.RWMutex
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -45,13 +45,13 @@ func NewDiscovery(etcdEndpoints []string) (*Discovery, error) {
 }
 
 // Watch 监听服务变化
-func (d *Discovery) Watch(ctx context.Context, serviceName string) error {
-	if serviceName == "" {
-		return ErrEmptyServiceName
+func (d *Discovery) Watch(ctx context.Context, appName string) error {
+	if appName == "" {
+		return ErrEmptyAppName
 	}
 
-	d.serviceName = serviceName
-	prefix := fmt.Sprintf("/services/%s/", serviceName)
+	d.appName = appName
+	prefix := fmt.Sprintf("/octopus/applications/%s/", appName)
 
 	// 1. 首先获取已有的服务实例
 	if err := d.loadInstances(ctx, prefix); err != nil {
@@ -230,7 +230,7 @@ func (d *Discovery) GetStatus() map[string]interface{} {
 	defer d.mu.RUnlock()
 
 	return map[string]interface{}{
-		"service_name":   d.serviceName,
+		"app_name":       d.appName,
 		"instance_count": len(d.instances),
 		"healthy":        d.IsHealthy(),
 	}

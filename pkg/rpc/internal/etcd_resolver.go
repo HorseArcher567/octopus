@@ -148,7 +148,7 @@ func (r *etcdResolver) watch() {
 
 // watchOnce 执行单次监听
 func (r *etcdResolver) watchOnce() error {
-	prefix := fmt.Sprintf("/services/%s/", r.target.Endpoint())
+	prefix := fmt.Sprintf("/octopus/applications/%s/", r.target.Endpoint())
 	watchChan := r.client.Watch(r.ctx, prefix, clientv3.WithPrefix())
 
 	for watchResp := range watchChan {
@@ -177,7 +177,7 @@ func (r *etcdResolver) watchOnce() error {
 
 // loadServices 加载现有服务实例
 func (r *etcdResolver) loadServices() error {
-	prefix := fmt.Sprintf("/services/%s/", r.target.Endpoint())
+	prefix := fmt.Sprintf("/octopus/applications/%s/", r.target.Endpoint())
 
 	resp, err := r.client.Get(r.ctx, prefix, clientv3.WithPrefix())
 	if err != nil {

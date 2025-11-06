@@ -177,8 +177,8 @@ server.Start()
 ```go
 // 通过 etcd 服务发现自动连接
 conn, err := rpc.NewClient(&rpc.ClientConfig{
-    ServiceName: "multi-service-demo",
-    EtcdAddr:    []string{"127.0.0.1:2379"},
+    Target:   "multi-service-demo",
+    EtcdAddr: []string{"127.0.0.1:2379"},
 })
 
 // 创建不同服务的客户端（共享同一个连接）

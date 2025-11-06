@@ -21,8 +21,8 @@ var (
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
-	ServiceName string   // 服务名称
-	EtcdAddr    []string // etcd 地址
+	AppName  string   // 目标应用名称（在服务发现系统中注册的名称）
+	EtcdAddr []string // etcd 地址
 
 	// 可选配置
 	EnableKeepalive bool // 是否启用 keepalive
@@ -57,12 +57,12 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 	opts = append(defaultOpts, opts...)
 
 	// 3. 创建连接
-	target := fmt.Sprintf("etcd:///%s", config.ServiceName)
-	log.Printf("[Client] Connecting to service '%s' via etcd discovery", config.ServiceName)
+	target := fmt.Sprintf("etcd:///%s", config.AppName)
+	log.Printf("[Client] Connecting to '%s' via etcd discovery", config.AppName)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Printf("[Client] ❌ Failed to create connection: %v", err)
-		return nil, fmt.Errorf("failed to connect to %s: %w", config.ServiceName, err)
+		return nil, fmt.Errorf("failed to connect to %s: %w", config.AppName, err)
 	}
 
 	return conn, nil

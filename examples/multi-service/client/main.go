@@ -11,9 +11,10 @@ import (
 
 func main() {
 	// 通过 etcd 服务发现连接到服务器
+	// AppName 是应用注册名，一个连接可以访问其下的所有 gRPC 服务
 	conn, err := rpc.NewClient(&rpc.ClientConfig{
-		ServiceName: "multi-service-demo",
-		EtcdAddr:    []string{"localhost:2379"},
+		AppName:  "multi-service-demo",
+		EtcdAddr: []string{"localhost:2379"},
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
@@ -23,7 +24,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 创建客户端
+	// 创建不同的 gRPC 服务客户端（共享同一个连接）
 	userClient := pb.NewUserServiceClient(conn)
 	orderClient := pb.NewOrderServiceClient(conn)
 	productClient := pb.NewProductServiceClient(conn)

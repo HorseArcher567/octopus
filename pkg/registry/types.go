@@ -20,9 +20,9 @@ type Config struct {
 	DialTimeout      time.Duration // 连接超时
 	AutoSyncInterval time.Duration // 自动同步集群成员间隔
 
-	// 服务配置
-	ServiceName string // 服务名称
-	TTL         int64  // 租约TTL（秒）
+	// 应用配置
+	AppName string // 应用名称
+	TTL     int64  // 租约TTL（秒）
 
 	// 认证配置（可选）
 	Username string // etcd用户名
@@ -43,8 +43,8 @@ func (c *Config) Validate() error {
 	if len(c.EtcdEndpoints) == 0 {
 		return ErrEmptyEndpoints
 	}
-	if c.ServiceName == "" {
-		return ErrEmptyServiceName
+	if c.AppName == "" {
+		return ErrEmptyAppName
 	}
 	if c.TTL < 10 {
 		return ErrInvalidTTL

@@ -97,38 +97,23 @@ func (s *ProductServiceImpl) ListProducts(ctx context.Context, req *pb.ListProdu
 func main() {
 	// 配置服务器
 	config := &rpc.ServerConfig{
-		Name:             "multi-service-demo",
+		AppName:          "multi-service-demo",
 		Host:             "127.0.0.1",
 		Port:             9000,
-		EtcdAddr:         []string{"localhost:2379"}, // etcd 地址（服务注册）
-		TTL:              10,                         // 租约时间
-		EnableReflection: true,                       // 开发环境启用反射
-		EnableHealth:     true,                       // 启用健康检查
+		EtcdAddr:         []string{"localhost:2379"},
+		TTL:              10,
+		EnableReflection: true, // 开启反射，便于使用 grpcurl/grpcui 调试
 	}
 
 	// 创建 RPC 服务器
 	server := rpc.NewServer(config)
 
-	// 创建服务实现
-	userService := &UserServiceImpl{}
-	orderService := &OrderServiceImpl{}
-	productService := &ProductServiceImpl{}
-
 	// 注册多个服务
-	log.Println("Registering UserService...")
 	server.RegisterService(func(s *grpc.Server) {
-		pb.RegisterUserServiceServer(s, userService)
-	}, "UserService") // 可选：指定服务名用于健康检查
-
-	log.Println("Registering OrderService...")
-	server.RegisterService(func(s *grpc.Server) {
-		pb.RegisterOrderServiceServer(s, orderService)
-	}, "OrderService")
-
-	log.Println("Registering ProductService...")
-	server.RegisterService(func(s *grpc.Server) {
-		pb.RegisterProductServiceServer(s, productService)
-	}, "ProductService")
+		pb.RegisterUserServiceServer(s, &UserServiceImpl{})
+		pb.RegisterOrderServiceServer(s, &OrderServiceImpl{})
+		pb.RegisterProductServiceServer(s, &ProductServiceImpl{})
+	})
 
 	// 启动服务器
 	log.Println("Starting multi-service server on :9000")
