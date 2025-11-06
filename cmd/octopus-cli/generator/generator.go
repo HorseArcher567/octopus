@@ -37,10 +37,7 @@ func Generate(serviceName, module, outputDir string) error {
 		return fmt.Errorf("failed to generate main.go: %w", err)
 	}
 
-	// 生成 config.go
-	if err := generateConfig(projectDir, data); err != nil {
-		return fmt.Errorf("failed to generate config.go: %w", err)
-	}
+	// 不再生成 internal/config/config.go（改到 server 包定义）
 
 	// 生成 server.go
 	if err := generateServer(projectDir, data); err != nil {
@@ -81,7 +78,7 @@ func Generate(serviceName, module, outputDir string) error {
 	fmt.Printf("  📁 %s/\n", serviceName)
 	fmt.Printf("    ├── cmd/main.go\n")
 	fmt.Printf("    ├── internal/\n")
-	fmt.Printf("    │   ├── config/config.go\n")
+	// 移除 internal/config 展示
 	fmt.Printf("    │   ├── logic/logic.go\n")
 	fmt.Printf("    │   └── server/server.go\n")
 	fmt.Printf("    ├── proto/%s.proto\n", serviceName)
@@ -96,7 +93,7 @@ func Generate(serviceName, module, outputDir string) error {
 func createDirs(projectDir string) error {
 	dirs := []string{
 		"cmd",
-		"internal/config",
+		// 移除 internal/config 目录
 		"internal/logic",
 		"internal/server",
 		"proto",

@@ -19,22 +19,21 @@ func generateMain(projectDir string, data TemplateData) error {
 	tmpl := `package main
 
 import (
-	"log"
+    "log"
 
-	"{{.Module}}/internal/config"
-	"{{.Module}}/internal/logic"
-	"{{.Module}}/internal/server"
-	"{{.Module}}/proto/pb"
+    "{{.Module}}/internal/logic"
+    "{{.Module}}/internal/server"
+    "{{.Module}}/proto/pb"
 
-	"google.golang.org/grpc"
-	"github.com/HorseArcher567/octopus/pkg/config"
-	"github.com/HorseArcher567/octopus/pkg/rpc"
+    "google.golang.org/grpc"
+    "github.com/HorseArcher567/octopus/pkg/config"
+    "github.com/HorseArcher567/octopus/pkg/rpc"
 )
 
 func main() {
-	// 1. 加载配置
-	var cfg config.Config
-	config.MustLoadWithEnvAndUnmarshal("etc/config.yaml", &cfg)
+    // 1. 加载配置
+    var cfg server.Config
+    config.MustLoadWithEnvAndUnmarshal("etc/config.yaml", &cfg)
 
 	// 2. 创建 Logic
 	logic := logic.NewLogic()
@@ -47,10 +46,15 @@ func main() {
 	cfg.Server.EnableHealth = true
 	rpcServer := rpc.NewServer(&cfg.Server)
 
-	// 5. 注册服务
+	// 5. 注册服务（支持注册多个服务）
 	rpcServer.RegisterService(func(s *grpc.Server) {
 		pb.Register{{.ServiceNameCamel}}Server(s, srv)
 	})
+	
+	// 如果有多个服务，可以继续注册：
+	// rpcServer.RegisterService(func(s *grpc.Server) {
+	//     pb.RegisterAnotherServiceServer(s, anotherSrv)
+	// }, "AnotherService") // 可选：指定服务名用于健康检查
 
 	// 6. 启动服务
 	if err := rpcServer.Start(); err != nil {
@@ -62,19 +66,7 @@ func main() {
 }
 
 // generateConfig 生成 config.go
-func generateConfig(projectDir string, data TemplateData) error {
-	tmpl := `package config
-
-import "github.com/HorseArcher567/octopus/pkg/rpc"
-
-// Config 服务配置
-type Config struct {
-	Server rpc.ServerConfig  // 服务配置（直接使用 rpc.ServerConfig）
-	Mode   string            // 运行模式: dev/prod
-}
-`
-	return writeFile(filepath.Join(projectDir, "internal/config/config.go"), tmpl)
-}
+// （移除）不再生成 internal/config，配置定义改到 server 包中
 
 // generateLogic 生成 logic.go
 func generateLogic(projectDir string, data TemplateData) error {
@@ -115,6 +107,8 @@ func generateServer(projectDir string, data TemplateData) error {
 import (
 	"context"
 
+    "github.com/HorseArcher567/octopus/pkg/rpc"
+
 	"{{.Module}}/internal/logic"
 	"{{.Module}}/proto/pb"
 )
@@ -123,6 +117,12 @@ import (
 type Server struct {
 	pb.Unimplemented{{.ServiceNameCamel}}Server
 	logic *logic.Logic
+}
+
+// Config 应用配置
+type Config struct {
+    Server rpc.ServerConfig // 服务配置（直接使用 rpc.ServerConfig）
+    Mode   string           // 运行模式: dev/prod
 }
 
 // NewServer 创建 Server 实例
@@ -146,7 +146,8 @@ func generateProto(projectDir string, data TemplateData) error {
 
 package pb;
 
-option go_package = "./pb";
+// 使用模块相对路径，避免在本地生成多一层模块目录
+option go_package = "proto/pb;pb";
 
 // {{.ServiceNameCamel}} 服务定义
 service {{.ServiceNameCamel}} {
@@ -186,9 +187,8 @@ func generateMakefile(projectDir string, data TemplateData) error {
 # 生成 Proto 代码
 proto:
 	@echo "Generating proto..."
-	@mkdir -p proto/pb
-	@protoc --go_out=proto/pb --go_opt=paths=source_relative \
-		--go-grpc_out=proto/pb --go-grpc_opt=paths=source_relative \
+	@protoc --go_out=. \
+		--go-grpc_out=. \
 		proto/{{.ServiceName}}.proto
 	@echo "✅ Proto generated"
 

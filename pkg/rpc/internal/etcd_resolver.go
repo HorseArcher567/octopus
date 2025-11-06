@@ -34,12 +34,15 @@ func (b *EtcdResolverBuilder) Scheme() string {
 
 // Build 创建一个新的resolver实例
 func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+	log.Printf("[Resolver] Building resolver for service '%s'", target.Endpoint())
+
 	r := &etcdResolver{
 		target:    target,
 		cc:        cc,
 		endpoints: b.etcdEndpoints,
 		ctx:       context.Background(),
 		addrs:     make(map[string]resolver.Address),
+		closed:    false,
 	}
 
 	r.ctx, r.cancel = context.WithCancel(r.ctx)
@@ -50,6 +53,7 @@ func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientCo
 		DialTimeout: 5 * time.Second,
 	})
 	if err != nil {
+		log.Printf("[Resolver] ❌ Failed to connect to etcd %v: %v", b.etcdEndpoints, err)
 		return nil, fmt.Errorf("failed to connect etcd: %w", err)
 	}
 	r.client = client
@@ -70,6 +74,7 @@ type etcdResolver struct {
 	cancel    context.CancelFunc
 	addrs     map[string]resolver.Address
 	mu        sync.RWMutex
+	closed    bool // 标记是否已关闭
 }
 
 // ResolveNow gRPC调用此方法请求立即解析
@@ -82,17 +87,22 @@ func (r *etcdResolver) ResolveNow(resolver.ResolveNowOptions) {
 
 // Close 关闭resolver
 func (r *etcdResolver) Close() {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
+
 	r.cancel()
 	if r.client != nil {
 		r.client.Close()
 	}
+	log.Printf("[Resolver] Resolver closed for service: %s", r.target.Endpoint())
 }
 
 // watch 监听服务变化（带自动重连）
 func (r *etcdResolver) watch() {
 	// 首先加载现有服务
 	if err := r.loadServices(); err != nil {
-		log.Printf("Failed to load services: %v", err)
+		log.Printf("[Resolver] Failed to load services: %v", err)
 	}
 
 	backoff := time.Second
@@ -112,8 +122,18 @@ func (r *etcdResolver) watch() {
 			continue
 		}
 
+		// 检查是否已关闭
+		r.mu.RLock()
+		closed := r.closed
+		r.mu.RUnlock()
+
+		if closed {
+			// 正常关闭，不打印错误
+			return
+		}
+
 		// 发生错误，等待后重试
-		log.Printf("Watch error: %v, retrying in %v", err, backoff)
+		log.Printf("[Resolver] Watch error: %v, retrying in %v", err, backoff)
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
@@ -158,19 +178,19 @@ func (r *etcdResolver) watchOnce() error {
 // loadServices 加载现有服务实例
 func (r *etcdResolver) loadServices() error {
 	prefix := fmt.Sprintf("/services/%s/", r.target.Endpoint())
+
 	resp, err := r.client.Get(r.ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
+		log.Printf("[Resolver] ❌ Failed to get services from etcd: %v", err)
 		return err
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.addrs = make(map[string]resolver.Address)
 	for _, kv := range resp.Kvs {
 		var instance registry.ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
-			log.Printf("Failed to unmarshal: %v", err)
+			log.Printf("[Resolver] ❌ Failed to unmarshal key %s: %v", string(kv.Key), err)
 			continue
 		}
 
@@ -180,7 +200,9 @@ func (r *etcdResolver) loadServices() error {
 			Metadata: &instance,
 		}
 	}
+	r.mu.Unlock()
 
+	// 在锁外调用 updateState，避免死锁
 	r.updateState()
 	return nil
 }
@@ -196,7 +218,7 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 	case mvccpb.PUT:
 		var instance registry.ServiceInstance
 		if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
-			log.Printf("Failed to unmarshal: %v", err)
+			log.Printf("[Resolver] Failed to unmarshal: %v", err)
 			return
 		}
 		addr := fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
@@ -204,11 +226,11 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 			Addr:     addr,
 			Metadata: &instance,
 		}
-		log.Printf("Service added: %s", addr)
+		log.Printf("[Resolver] ➕ Service added: %s", addr)
 
 	case mvccpb.DELETE:
 		if addr, ok := r.addrs[key]; ok {
-			log.Printf("Service removed: %s", addr.Addr)
+			log.Printf("[Resolver] ➖ Service removed: %s", addr.Addr)
 			delete(r.addrs, key)
 		}
 	}
@@ -222,6 +244,16 @@ func (r *etcdResolver) updateState() {
 		addrs = append(addrs, addr)
 	}
 	r.mu.RUnlock()
+
+	if len(addrs) == 0 {
+		log.Printf("[Resolver] ⚠️  No service instances found for '%s'", r.target.Endpoint())
+	} else {
+		addrList := make([]string, len(addrs))
+		for i, addr := range addrs {
+			addrList[i] = addr.Addr
+		}
+		log.Printf("[Resolver] ✅ Discovered %d instance(s): %v", len(addrs), addrList)
+	}
 
 	r.cc.UpdateState(resolver.State{Addresses: addrs})
 }

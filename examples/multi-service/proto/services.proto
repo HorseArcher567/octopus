@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package multi;
+
+option go_package = "proto/pb;pb";
+
+// 用户服务
+service UserService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+}
+
+message GetUserRequest {
+  int64 user_id = 1;
+}
+
+message GetUserResponse {
+  int64 user_id = 1;
+  string username = 2;
+  string email = 3;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+}
+
+message CreateUserResponse {
+  int64 user_id = 1;
+  string message = 2;
+}
+
+// 订单服务
+service OrderService {
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+}
+
+message GetOrderRequest {
+  int64 order_id = 1;
+}
+
+message GetOrderResponse {
+  int64 order_id = 1;
+  int64 user_id = 2;
+  string product_name = 3;
+  double amount = 4;
+  string status = 5;
+}
+
+message CreateOrderRequest {
+  int64 user_id = 1;
+  string product_name = 2;
+  double amount = 3;
+}
+
+message CreateOrderResponse {
+  int64 order_id = 1;
+  string message = 2;
+}
+
+// 产品服务
+service ProductService {
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+}
+
+message GetProductRequest {
+  int64 product_id = 1;
+}
+
+message GetProductResponse {
+  int64 product_id = 1;
+  string name = 2;
+  string description = 3;
+  double price = 4;
+  int32 stock = 5;
+}
+
+message ListProductsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message ListProductsResponse {
+  repeated GetProductResponse products = 1;
+  int32 total = 2;
+}
+

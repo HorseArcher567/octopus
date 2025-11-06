@@ -33,40 +33,69 @@ type ServerConfig struct {
 
 // Server RPC 服务器封装
 type Server struct {
-	config     *ServerConfig
-	grpcServer *grpc.Server
-	registry   *registry.Registry
-	listener   net.Listener
+	config       *ServerConfig
+	grpcServer   *grpc.Server
+	registry     *registry.Registry
+	listener     net.Listener
+	healthServer *health.Server // 健康检查服务器
+	serviceNames []string       // 已注册的服务名称列表
 }
 
 // NewServer 创建 RPC 服务器
 func NewServer(config *ServerConfig, opts ...grpc.ServerOption) *Server {
-	return &Server{
-		config:     config,
-		grpcServer: grpc.NewServer(opts...),
+	s := &Server{
+		config:       config,
+		grpcServer:   grpc.NewServer(opts...),
+		serviceNames: make([]string, 0),
 	}
+
+	// 如果启用健康检查，创建健康检查服务器
+	if config.EnableHealth {
+		s.healthServer = health.NewServer()
+	}
+
+	return s
 }
 
 // RegisterService 注册 gRPC 服务
-func (s *Server) RegisterService(registerFunc func(*grpc.Server)) {
+// 支持多次调用以注册多个服务
+// serviceName 参数可选，用于健康检查。如果不提供，使用统一的服务名
+func (s *Server) RegisterService(registerFunc func(*grpc.Server), serviceName ...string) {
 	registerFunc(s.grpcServer)
 
-	// 启用健康检查（默认开启）
-	if s.config.EnableHealth {
-		healthServer := health.NewServer()
-		healthServer.SetServingStatus(s.config.Name, grpc_health_v1.HealthCheckResponse_SERVING)
-		grpc_health_v1.RegisterHealthServer(s.grpcServer, healthServer)
-	}
-
-	// 启用反射（方便使用 grpcurl 等工具调试）
-	if s.config.EnableReflection {
-		reflection.Register(s.grpcServer)
+	// 记录服务名称（用于健康检查）
+	if len(serviceName) > 0 && serviceName[0] != "" {
+		s.serviceNames = append(s.serviceNames, serviceName[0])
 	}
 }
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	// 1. 创建监听器
+	// 1. 设置健康检查
+	if s.config.EnableHealth && s.healthServer != nil {
+		// 为每个已注册的服务设置健康状态
+		if len(s.serviceNames) > 0 {
+			for _, name := range s.serviceNames {
+				s.healthServer.SetServingStatus(name, grpc_health_v1.HealthCheckResponse_SERVING)
+				log.Printf("Health check enabled for service: %s", name)
+			}
+		} else {
+			// 如果没有指定服务名，使用统一的服务名
+			s.healthServer.SetServingStatus(s.config.Name, grpc_health_v1.HealthCheckResponse_SERVING)
+			log.Printf("Health check enabled for service: %s", s.config.Name)
+		}
+		// 同时设置空字符串（代表整个服务器的健康状态）
+		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+		grpc_health_v1.RegisterHealthServer(s.grpcServer, s.healthServer)
+	}
+
+	// 2. 启用反射（方便使用 grpcurl 等工具调试）
+	if s.config.EnableReflection {
+		reflection.Register(s.grpcServer)
+		log.Println("gRPC reflection enabled")
+	}
+
+	// 3. 创建监听器
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -74,14 +103,14 @@ func (s *Server) Start() error {
 	}
 	s.listener = lis
 
-	// 2. 注册服务到 etcd
+	// 4. 注册服务到 etcd
 	if len(s.config.EtcdAddr) > 0 {
 		if err := s.registerToEtcd(); err != nil {
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 	}
 
-	// 3. 启动 gRPC 服务器
+	// 5. 启动 gRPC 服务器
 	log.Printf("Starting RPC server at %s", addr)
 	go func() {
 		if err := s.grpcServer.Serve(lis); err != nil {
@@ -89,7 +118,7 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// 4. 等待退出信号
+	// 6. 等待退出信号
 	s.waitForShutdown()
 
 	return nil

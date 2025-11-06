@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -10,6 +12,11 @@ import (
 	"google.golang.org/grpc/resolver"
 
 	"github.com/HorseArcher567/octopus/pkg/rpc/internal"
+)
+
+var (
+	registerOnce  sync.Once
+	globalBuilder *internal.EtcdResolverBuilder
 )
 
 // ClientConfig 客户端配置
@@ -23,9 +30,12 @@ type ClientConfig struct {
 
 // NewClient 创建 RPC 客户端（自动服务发现）
 func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	// 1. 注册 etcd resolver
-	builder := internal.NewBuilder(config.EtcdAddr)
-	resolver.Register(builder)
+	// 1. 注册 etcd resolver（全局只注册一次）
+	registerOnce.Do(func() {
+		globalBuilder = internal.NewBuilder(config.EtcdAddr)
+		resolver.Register(globalBuilder)
+		log.Printf("[Client] ✅ Etcd resolver registered")
+	})
 
 	// 2. 构建默认选项
 	defaultOpts := []grpc.DialOption{
@@ -48,8 +58,10 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 
 	// 3. 创建连接
 	target := fmt.Sprintf("etcd:///%s", config.ServiceName)
+	log.Printf("[Client] Connecting to service '%s' via etcd discovery", config.ServiceName)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
+		log.Printf("[Client] ❌ Failed to create connection: %v", err)
 		return nil, fmt.Errorf("failed to connect to %s: %w", config.ServiceName, err)
 	}
 
