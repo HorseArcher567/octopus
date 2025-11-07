@@ -43,7 +43,6 @@ func main() {
 
 	// 4. 创建 RPC Server（直接使用配置）
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	cfg.Server.EnableHealth = true
 	rpcServer := rpc.NewServer(&cfg.Server)
 
 	// 5. 注册服务（支持注册多个服务）
@@ -168,7 +167,7 @@ message HelloResponse {
 // generateConfigYaml 生成 config.yaml
 func generateConfigYaml(projectDir string, data TemplateData) error {
 	tmpl := `Server:
-  Name: {{.ServiceName}}
+  AppName: {{.ServiceName}}
   Host: 0.0.0.0
   Port: 9000
   EtcdAddr:

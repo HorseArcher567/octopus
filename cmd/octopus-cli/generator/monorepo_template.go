@@ -16,7 +16,8 @@ type MonorepoData struct {
 type AppData struct {
 	AppName      string // user
 	AppNameCamel string // User
-	Module       string // github.com/xxx/my-project
+	Module       string // github.com/xxx/my-project/apps/user (app 自己的 module)
+	RootModule   string // github.com/xxx/my-project (根 module，用于 proto)
 	Port         int    // 9001
 	ServiceName  string // user-service
 }
@@ -47,8 +48,7 @@ A monorepo project built with Octopus RPC Framework.
 │   ├── utils/
 │   └── errors/
 ├── scripts/          # Build and deploy scripts
-├── go.mod            # Go module
-├── go.work           # Go workspace
+├── go.work           # Go workspace (manages all modules)
 └── Makefile          # Build tasks
 ` + "```" + `
 
@@ -56,15 +56,29 @@ A monorepo project built with Octopus RPC Framework.
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.21+ (with workspace support)
 - Protocol Buffers compiler (protoc)
 - etcd (for service discovery)
+
+### Project Structure
+
+This is a **multi-module monorepo**:
+- **proto/ has its own go.mod**: Proto definitions and generated code
+- **Each app has its own go.mod**: Located in apps/<app-name>/go.mod
+- **go.work**: Manages all modules in the workspace, automatically updated when adding apps
+- **No root go.mod**: Root directory is just for organization
 
 ### Add a new application
 
 ` + "```bash" + `
 octopus-cli add <app-name> --port <port>
 ` + "```" + `
+
+This will:
+- Create app structure in apps/<app-name>/
+- Initialize independent go.mod for the app
+- Add the app to go.work automatically
+- Generate proto file in proto/<app-name>.proto
 
 ### Build
 
@@ -108,7 +122,7 @@ MIT
 
 // generateMonorepoMakefile 生成根 Makefile
 func generateMonorepoMakefile(projectDir string, data MonorepoData) error {
-	tmpl := `.PHONY: proto build-all clean deps test help
+	tmpl := `.PHONY: proto build-all clean deps sync-deps test help
 
 # Help target
 help:
@@ -127,9 +141,14 @@ help:
 proto:
 	@echo "Generating proto files..."
 	@if [ -d "proto" ]; then \
+		PROTO_MODULE=$$(grep "^module " proto/go.mod | cut -d' ' -f2); \
+		if [ -z "$$PROTO_MODULE" ]; then \
+			echo "⚠️  Failed to read proto module from proto/go.mod"; \
+			exit 1; \
+		fi; \
 		find proto -name "*.proto" -type f | while read proto_file; do \
 			echo "  Processing $$proto_file..."; \
-			protoc --go_out=. --go-grpc_out=. $$proto_file; \
+			protoc --go_out=proto --go_opt=module=$$PROTO_MODULE --go-grpc_out=proto --go-grpc_opt=module=$$PROTO_MODULE $$proto_file; \
 		done; \
 		echo "✅ Proto files generated"; \
 	else \
@@ -137,7 +156,7 @@ proto:
 	fi
 
 # Build all applications
-build-all: proto
+build-all: proto sync-deps
 	@echo "Building all applications..."
 	@if [ -d "apps" ]; then \
 		for app in apps/*/; do \
@@ -159,11 +178,28 @@ clean:
 	@find proto -name "*.pb.go" -type f -delete 2>/dev/null || true
 	@echo "✅ Cleaned"
 
-# Install dependencies
-deps:
-	@echo "Installing dependencies..."
-	@go mod tidy
-	@echo "✅ Dependencies installed"
+# Install dependencies (tidy all modules and sync workspace)
+deps: sync-deps
+
+# Sync dependencies across all modules in workspace
+sync-deps:
+	@echo "Syncing dependencies..."
+	@if [ -f "proto/go.mod" ]; then \
+		echo "  Tidy proto module..."; \
+		cd proto && go mod tidy; \
+	fi
+	@if [ -d "apps" ]; then \
+		for app in apps/*/; do \
+			if [ -f "$$app/go.mod" ]; then \
+				app_name=$$(basename $$app); \
+				echo "  Tidy $$app_name module..."; \
+				cd $$app && go mod tidy; \
+			fi; \
+		done; \
+	fi
+	@echo "  Syncing workspace..."
+	@go work sync
+	@echo "✅ Dependencies synced"
 
 # Run tests
 test:
@@ -225,15 +261,11 @@ func generateGoWork(projectDir string, data MonorepoData) error {
 	tmpl := `go 1.21
 
 use (
-	.
+	./proto
 )
 
-// Add your applications here when needed:
-// use (
-//     .
-//     ./apps/user
-//     ./apps/order
-// )
+// Applications will be added automatically when you run: octopus-cli add <app-name>
+// Each app has its own go.mod in apps/<app-name>/
 `
 	return writeFile(filepath.Join(projectDir, "go.work"), tmpl)
 }
@@ -245,9 +277,9 @@ func generateAppMain(appDir string, data AppData) error {
 import (
 	"log"
 
-	"{{.Module}}/apps/{{.AppName}}/internal/logic"
-	"{{.Module}}/apps/{{.AppName}}/internal/server"
-    "{{.Module}}/proto/{{.AppName}}"
+	"{{.Module}}/internal/logic"
+	"{{.Module}}/internal/server"
+	"{{.RootModule}}/{{.AppName}}"
 
 	"google.golang.org/grpc"
 	"github.com/HorseArcher567/octopus/pkg/config"
@@ -257,7 +289,7 @@ import (
 func main() {
 	// 1. Load configuration
 	var cfg server.Config
-	config.MustLoadWithEnvAndUnmarshal("apps/{{.AppName}}/etc/config.yaml", &cfg)
+	config.MustLoadWithEnvAndUnmarshal("etc/config.yaml", &cfg)
 
 	// 2. Create Logic
 	logic := logic.NewLogic()
@@ -267,12 +299,11 @@ func main() {
 
 	// 4. Create RPC Server
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	cfg.Server.EnableHealth = true
 	rpcServer := rpc.NewServer(&cfg.Server)
 
 	// 5. Register service
 	rpcServer.RegisterService(func(s *grpc.Server) {
-		pb.Register{{.AppNameCamel}}ServiceServer(s, srv)
+		{{.AppName}}.Register{{.AppNameCamel}}ServiceServer(s, srv)
 	})
 
 	// 6. Start server
@@ -292,7 +323,7 @@ func generateAppLogic(appDir string, data AppData) error {
 import (
 	"context"
 
-    "{{.Module}}/proto/{{.AppName}}"
+	"{{.RootModule}}/{{.AppName}}"
 )
 
 // Logic {{.AppNameCamel}} business logic layer
@@ -306,10 +337,10 @@ func NewLogic() *Logic {
 }
 
 // SayHello example method (implement your business logic)
-func (l *Logic) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloResponse, error) {
+func (l *Logic) SayHello(ctx context.Context, req *{{.AppName}}.HelloRequest) (*{{.AppName}}.HelloResponse, error) {
 	// TODO: Implement your business logic
 	
-	return &pb.HelloResponse{
+	return &{{.AppName}}.HelloResponse{
 		Message: "Hello from {{.ServiceName}}: " + req.Name,
 	}, nil
 }
@@ -326,13 +357,13 @@ import (
 
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 
-	"{{.Module}}/apps/{{.AppName}}/internal/logic"
-    "{{.Module}}/proto/{{.AppName}}"
+	"{{.Module}}/internal/logic"
+	"{{.RootModule}}/{{.AppName}}"
 )
 
 // Server gRPC service implementation
 type Server struct {
-	pb.Unimplemented{{.AppNameCamel}}ServiceServer
+	{{.AppName}}.Unimplemented{{.AppNameCamel}}ServiceServer
 	logic *logic.Logic
 }
 
@@ -350,7 +381,7 @@ func NewServer(logic *logic.Logic) *Server {
 }
 
 // SayHello implements gRPC method
-func (s *Server) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloResponse, error) {
+func (s *Server) SayHello(ctx context.Context, req *{{.AppName}}.HelloRequest) (*{{.AppName}}.HelloResponse, error) {
 	return s.logic.SayHello(ctx, req)
 }
 `
@@ -360,7 +391,7 @@ func (s *Server) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloR
 // generateAppConfig 生成应用的 config.yaml
 func generateAppConfig(appDir string, data AppData) error {
 	tmpl := `Server:
-  Name: {{.ServiceName}}
+  AppName: {{.ServiceName}}
   Host: 0.0.0.0
   Port: {{.Port}}
   EtcdAddr:
@@ -378,20 +409,21 @@ func generateAppProto(protoDir string, data AppData) error {
 
 package {{.AppName}};
 
-// Generated Go files reside in proto/{{.AppName}} with package name pb
-option go_package = "proto/{{.AppName}};pb";
+// Generated Go files reside in {{.AppName}}/ with package name {{.AppName}}
+// Import path: {{.RootModule}}/{{.AppName}}
+option go_package = "{{.RootModule}}/{{.AppName}};{{.AppName}}";
 
 // {{.AppNameCamel}}Service service definition
 service {{.AppNameCamel}}Service {
-  rpc SayHello(HelloRequest) returns (HelloResponse);
+	rpc SayHello(HelloRequest) returns (HelloResponse);
 }
 
 message HelloRequest {
-  string name = 1;
+	string name = 1;
 }
 
 message HelloResponse {
-  string message = 1;
+	string message = 1;
 }
 `
 	return writeFromTemplate(filepath.Join(protoDir, data.AppName+".proto"), tmpl, data)
