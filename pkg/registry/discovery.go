@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/logger"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -84,11 +84,20 @@ func (d *Discovery) loadInstances(ctx context.Context, prefix string) error {
 	for _, kv := range resp.Kvs {
 		var instance ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
-			log.Printf("Failed to unmarshal instance: %v", err)
+			logger.Error("failed to unmarshal instance",
+				"error", err,
+				"key", string(kv.Key),
+				"app_name", d.appName,
+			)
 			continue
 		}
 		d.instances[string(kv.Key)] = &instance
-		log.Printf("Loaded instance: %s -> %s:%d", string(kv.Key), instance.Addr, instance.Port)
+		logger.Info("loaded instance",
+			"key", string(kv.Key),
+			"addr", instance.Addr,
+			"port", instance.Port,
+			"app_name", d.appName,
+		)
 	}
 
 	return nil
@@ -102,7 +111,10 @@ func (d *Discovery) watchChanges(ctx context.Context, prefix string) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Watch stopped: %v", ctx.Err())
+			logger.Info("watch stopped",
+				"reason", ctx.Err(),
+				"app_name", d.appName,
+			)
 			return
 		default:
 		}
@@ -113,7 +125,11 @@ func (d *Discovery) watchChanges(ctx context.Context, prefix string) {
 			continue
 		}
 
-		log.Printf("Watch error: %v, retrying in %v", err, backoff)
+		logger.Warn("watch error, retrying",
+			"error", err,
+			"retry_delay", backoff,
+			"app_name", d.appName,
+		)
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
@@ -145,17 +161,29 @@ func (d *Discovery) watchSingle(ctx context.Context, prefix string) error {
 			case mvccpb.PUT:
 				var instance ServiceInstance
 				if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
-					log.Printf("Failed to unmarshal instance: %v", err)
+					logger.Error("failed to unmarshal instance",
+						"error", err,
+						"key", string(event.Kv.Key),
+						"app_name", d.appName,
+					)
 					continue
 				}
 				d.instances[string(event.Kv.Key)] = &instance
-				log.Printf("Instance added/updated: %s -> %s:%d",
-					string(event.Kv.Key), instance.Addr, instance.Port)
+				logger.Info("instance added/updated",
+					"key", string(event.Kv.Key),
+					"addr", instance.Addr,
+					"port", instance.Port,
+					"app_name", d.appName,
+				)
 
 			case mvccpb.DELETE:
 				if inst, ok := d.instances[string(event.Kv.Key)]; ok {
-					log.Printf("Instance removed: %s -> %s:%d",
-						string(event.Kv.Key), inst.Addr, inst.Port)
+					logger.Info("instance removed",
+						"key", string(event.Kv.Key),
+						"addr", inst.Addr,
+						"port", inst.Port,
+						"app_name", d.appName,
+					)
 					delete(d.instances, string(event.Kv.Key))
 				}
 			}
@@ -202,9 +230,14 @@ func (d *Discovery) Stop() {
 
 	select {
 	case <-done:
-		log.Printf("Discovery stopped cleanly")
+		logger.Info("discovery stopped cleanly",
+			"app_name", d.appName,
+		)
 	case <-time.After(5 * time.Second):
-		log.Printf("Warning: Discovery did not stop in time")
+		logger.Warn("discovery did not stop in time",
+			"timeout", "5s",
+			"app_name", d.appName,
+		)
 	}
 }
 

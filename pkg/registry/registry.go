@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/logger"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -109,7 +109,13 @@ func (r *Registry) Register(ctx context.Context) error {
 	r.registered = true
 	r.mu.Unlock()
 
-	log.Printf("Application registered: %s (LeaseID: %d, TTL: %ds)", r.key, r.leaseID, r.ttl)
+	logger.Info("application registered",
+		"key", r.key,
+		"lease_id", r.leaseID,
+		"ttl", r.ttl,
+		"app_name", r.config.AppName,
+		"instance", fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
+	)
 	return nil
 }
 
@@ -121,7 +127,11 @@ func (r *Registry) keepAlive(ctx context.Context) {
 	for {
 		kaChannel, err := r.client.KeepAlive(ctx, r.leaseID)
 		if err != nil {
-			log.Printf("Failed to start keep alive: %v", err)
+			logger.Error("failed to start keep alive",
+				"error", err,
+				"lease_id", r.leaseID,
+				"app_name", r.config.AppName,
+			)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -133,22 +143,32 @@ func (r *Registry) keepAlive(ctx context.Context) {
 			select {
 			case resp := <-kaChannel:
 				if resp == nil {
-					log.Printf("KeepAlive channel closed, attempting to re-register...")
+					logger.Warn("keepalive channel closed, attempting to re-register",
+						"lease_id", r.leaseID,
+						"app_name", r.config.AppName,
+					)
 					shouldReregister = true
 					break
 				}
 				lastRenew = time.Now()
 
 			case <-ticker.C:
-				log.Printf("Lease active (ID: %d, last renewed: %v ago)",
-					r.leaseID, time.Since(lastRenew))
+				logger.Debug("lease active",
+					"lease_id", r.leaseID,
+					"last_renewed", time.Since(lastRenew),
+					"app_name", r.config.AppName,
+				)
 
 			case <-ctx.Done():
-				log.Printf("KeepAlive stopped by context cancellation")
+				logger.Info("keepalive stopped by context cancellation",
+					"app_name", r.config.AppName,
+				)
 				return
 
 			case <-r.closeChan:
-				log.Printf("KeepAlive stopped by close signal")
+				logger.Info("keepalive stopped by close signal",
+					"app_name", r.config.AppName,
+				)
 				return
 			}
 
@@ -159,10 +179,17 @@ func (r *Registry) keepAlive(ctx context.Context) {
 
 		if shouldReregister && ctx.Err() == nil {
 			if err := r.reRegister(ctx); err != nil {
-				log.Printf("Failed to re-register: %v, retrying in 5s", err)
+				logger.Error("failed to re-register, retrying",
+					"error", err,
+					"retry_delay", "5s",
+					"app_name", r.config.AppName,
+				)
 				time.Sleep(5 * time.Second)
 			} else {
-				log.Printf("Successfully re-registered with new lease: %d", r.leaseID)
+				logger.Info("successfully re-registered",
+					"lease_id", r.leaseID,
+					"app_name", r.config.AppName,
+				)
 			}
 		} else {
 			return
@@ -217,9 +244,14 @@ func (r *Registry) Unregister(ctx context.Context) error {
 
 	select {
 	case <-done:
-		log.Printf("KeepAlive goroutine exited cleanly")
+		logger.Info("keepalive goroutine exited cleanly",
+			"app_name", r.config.AppName,
+		)
 	case <-time.After(5 * time.Second):
-		log.Printf("Warning: KeepAlive goroutine did not exit in time")
+		logger.Warn("keepalive goroutine did not exit in time",
+			"timeout", "5s",
+			"app_name", r.config.AppName,
+		)
 	}
 
 	// 3. 撤销租约，自动删除所有关联键值对
@@ -229,7 +261,11 @@ func (r *Registry) Unregister(ctx context.Context) error {
 
 		_, err := r.client.Revoke(revokeCtx, r.leaseID)
 		if err != nil {
-			log.Printf("Failed to revoke lease: %v", err)
+			logger.Error("failed to revoke lease",
+				"error", err,
+				"lease_id", r.leaseID,
+				"app_name", r.config.AppName,
+			)
 		}
 	}
 
@@ -237,7 +273,10 @@ func (r *Registry) Unregister(ctx context.Context) error {
 	r.registered = false
 	r.mu.Unlock()
 
-	log.Printf("Service unregistered: %s", r.key)
+	logger.Info("service unregistered",
+		"key", r.key,
+		"app_name", r.config.AppName,
+	)
 	return nil
 }
 

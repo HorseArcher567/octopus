@@ -2,16 +2,23 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/logger"
 	"github.com/HorseArcher567/octopus/pkg/registry"
 )
 
 func main() {
+	// 0. 初始化日志（可选，默认已经初始化）
+	logger.Init(&logger.Config{
+		Level:     "debug",
+		Format:    "text",
+		AddSource: true,
+	})
+
 	// 1. 配置服务实例信息
 	instance := &registry.ServiceInstance{
 		Addr:    "127.0.0.1",
@@ -34,34 +41,39 @@ func main() {
 	// 3. 创建注册器
 	reg, err := registry.NewRegistry(cfg, instance)
 	if err != nil {
-		log.Fatalf("Failed to create registry: %v", err)
+		logger.Error("failed to create registry", "error", err)
+		os.Exit(1)
 	}
 	defer reg.Close()
 
 	// 4. 注册服务
 	if err := reg.Register(context.Background()); err != nil {
-		log.Fatalf("Failed to register service: %v", err)
+		logger.Error("failed to register service", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Application registered successfully")
+	logger.Info("application registered successfully")
 
 	// 5. 这里可以启动你的实际业务服务
 	// 例如：启动gRPC服务器、HTTP服务器等
-	log.Println("Application is running...")
+	logger.Info("application is running",
+		"addr", instance.Addr,
+		"port", instance.Port,
+	)
 
 	// 6. 等待退出信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 	<-sigChan
 
-	log.Println("Shutting down gracefully...")
+	logger.Info("shutting down gracefully")
 
 	// 7. 注销服务
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := reg.Unregister(ctx); err != nil {
-		log.Printf("Failed to unregister: %v", err)
+		logger.Error("failed to unregister", "error", err)
 	}
 
-	log.Println("Shutdown complete")
+	logger.Info("shutdown complete")
 }

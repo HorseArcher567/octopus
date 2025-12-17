@@ -2,16 +2,15 @@ package rpc
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/rpc/internal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/resolver"
-
-	"github.com/HorseArcher567/octopus/pkg/rpc/internal"
 )
 
 var (
@@ -34,7 +33,9 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 	registerOnce.Do(func() {
 		globalBuilder = internal.NewBuilder(config.EtcdAddr)
 		resolver.Register(globalBuilder)
-		log.Printf("[Client] ✅ Etcd resolver registered")
+		logger.Info("etcd resolver registered",
+			"etcd_endpoints", config.EtcdAddr,
+		)
 	})
 
 	// 2. 构建默认选项
@@ -58,10 +59,16 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 
 	// 3. 创建连接
 	target := fmt.Sprintf("etcd:///%s", config.AppName)
-	log.Printf("[Client] Connecting to '%s' via etcd discovery", config.AppName)
+	logger.Info("connecting to service via etcd discovery",
+		"target_app", config.AppName,
+		"etcd_endpoints", config.EtcdAddr,
+	)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
-		log.Printf("[Client] ❌ Failed to create connection: %v", err)
+		logger.Error("failed to create connection",
+			"error", err,
+			"target_app", config.AppName,
+		)
 		return nil, fmt.Errorf("failed to connect to %s: %w", config.AppName, err)
 	}
 

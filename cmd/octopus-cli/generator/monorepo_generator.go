@@ -60,12 +60,18 @@ func InitMonorepo(projectName, module, outputDir string) error {
 		return fmt.Errorf("failed to init proto go.mod: %w", err)
 	}
 
+	// 5. 初始化 pkg module（pkg/ 目录有自己的 go.mod）
+	pkgDir := filepath.Join(projectDir, "pkg")
+	if err := initPkgGoMod(pkgDir, projectName); err != nil {
+		return fmt.Errorf("failed to init pkg go.mod: %w", err)
+	}
+
 	fmt.Printf("✨ Monorepo project '%s' initialized!\n", projectName)
 	fmt.Printf("\n📁 Project structure:\n")
 	fmt.Printf("  %s/\n", projectName)
 	fmt.Printf("    ├── apps/          (your applications)\n")
 	fmt.Printf("    ├── proto/         (proto module with go.mod)\n")
-	fmt.Printf("    ├── pkg/           (shared packages)\n")
+	fmt.Printf("    ├── pkg/           (shared packages module with go.mod)\n")
 	fmt.Printf("    ├── go.work        (manages all modules)\n")
 	fmt.Printf("    ├── Makefile\n")
 	fmt.Printf("    └── README.md\n")
@@ -284,6 +290,24 @@ func initProtoGoMod(protoDir, projectName string) error {
 	// 整理依赖
 	cmd = exec.Command("go", "mod", "tidy")
 	cmd.Dir = protoDir
+	return cmd.Run()
+}
+
+// initPkgGoMod 初始化 pkg module 的 go.mod
+func initPkgGoMod(pkgDir, projectName string) error {
+	// pkg module 名称：{projectName}/pkg（使用简化的路径，不包含 GitHub 路径）
+	pkgModule := fmt.Sprintf("%s/pkg", projectName)
+
+	// 初始化 go.mod
+	cmd := exec.Command("go", "mod", "init", pkgModule)
+	cmd.Dir = pkgDir
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// 整理依赖（pkg 模块通常不需要外部依赖，除非有特殊需求）
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Dir = pkgDir
 	return cmd.Run()
 }
 

@@ -64,6 +64,7 @@ A monorepo project built with Octopus RPC Framework.
 
 This is a **multi-module monorepo**:
 - **proto/ has its own go.mod**: Proto definitions and generated code
+- **pkg/ has its own go.mod**: Shared packages that can be used by all apps
 - **Each app has its own go.mod**: Located in apps/<app-name>/go.mod
 - **go.work**: Manages all modules in the workspace, automatically updated when adding apps
 - **No root go.mod**: Root directory is just for organization
@@ -188,6 +189,10 @@ sync-deps:
 		echo "  Tidy proto module..."; \
 		cd proto && go mod tidy; \
 	fi
+	@if [ -f "pkg/go.mod" ]; then \
+		echo "  Tidy pkg module..."; \
+		cd pkg && go mod tidy; \
+	fi
 	@if [ -d "apps" ]; then \
 		for app in apps/*/; do \
 			if [ -f "$$app/go.mod" ]; then \
@@ -262,6 +267,7 @@ func generateGoWork(projectDir string, data MonorepoData) error {
 
 use (
 	./proto
+	./pkg
 )
 
 // Applications will be added automatically when you run: octopus-cli add <app-name>

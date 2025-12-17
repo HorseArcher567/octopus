@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"log"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
+	"github.com/HorseArcher567/octopus/pkg/logger"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"google.golang.org/grpc"
 )
@@ -15,7 +15,7 @@ type UserServiceImpl struct {
 }
 
 func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-	log.Printf("GetUser called: user_id=%d", req.UserId)
+	logger.Info("get user called", "user_id", req.UserId)
 	return &pb.GetUserResponse{
 		UserId:   req.UserId,
 		Username: "testuser",
@@ -24,7 +24,10 @@ func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (
 }
 
 func (s *UserServiceImpl) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
-	log.Printf("CreateUser called: username=%s, email=%s", req.Username, req.Email)
+	logger.Info("create user called",
+		"username", req.Username,
+		"email", req.Email,
+	)
 	return &pb.CreateUserResponse{
 		UserId:  1001,
 		Message: "User created successfully",
@@ -37,7 +40,7 @@ type OrderServiceImpl struct {
 }
 
 func (s *OrderServiceImpl) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.GetOrderResponse, error) {
-	log.Printf("GetOrder called: order_id=%d", req.OrderId)
+	logger.Info("get order called", "order_id", req.OrderId)
 	return &pb.GetOrderResponse{
 		OrderId:     req.OrderId,
 		UserId:      1001,
@@ -48,7 +51,11 @@ func (s *OrderServiceImpl) GetOrder(ctx context.Context, req *pb.GetOrderRequest
 }
 
 func (s *OrderServiceImpl) CreateOrder(ctx context.Context, req *pb.CreateOrderRequest) (*pb.CreateOrderResponse, error) {
-	log.Printf("CreateOrder called: user_id=%d, product=%s, amount=%.2f", req.UserId, req.ProductName, req.Amount)
+	logger.Info("create order called",
+		"user_id", req.UserId,
+		"product", req.ProductName,
+		"amount", req.Amount,
+	)
 	return &pb.CreateOrderResponse{
 		OrderId: 2001,
 		Message: "Order created successfully",
@@ -61,7 +68,7 @@ type ProductServiceImpl struct {
 }
 
 func (s *ProductServiceImpl) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.GetProductResponse, error) {
-	log.Printf("GetProduct called: product_id=%d", req.ProductId)
+	logger.Info("get product called", "product_id", req.ProductId)
 	return &pb.GetProductResponse{
 		ProductId:   req.ProductId,
 		Name:        "Sample Product",
@@ -72,7 +79,10 @@ func (s *ProductServiceImpl) GetProduct(ctx context.Context, req *pb.GetProductR
 }
 
 func (s *ProductServiceImpl) ListProducts(ctx context.Context, req *pb.ListProductsRequest) (*pb.ListProductsResponse, error) {
-	log.Printf("ListProducts called: page=%d, page_size=%d", req.Page, req.PageSize)
+	logger.Info("list products called",
+		"page", req.Page,
+		"page_size", req.PageSize,
+	)
 	return &pb.ListProductsResponse{
 		Products: []*pb.GetProductResponse{
 			{
@@ -95,6 +105,13 @@ func (s *ProductServiceImpl) ListProducts(ctx context.Context, req *pb.ListProdu
 }
 
 func main() {
+	// 初始化日志
+	logger.Init(&logger.Config{
+		Level:     "debug",
+		Format:    "text",
+		AddSource: true,
+	})
+
 	// 配置服务器
 	config := &rpc.ServerConfig{
 		AppName:          "multi-service-demo",
@@ -116,8 +133,8 @@ func main() {
 	})
 
 	// 启动服务器
-	log.Println("Starting multi-service server on :9000")
+	logger.Info("starting multi-service server", "port", 9000)
 	if err := server.Start(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		logger.Error("failed to start server", "error", err)
 	}
 }

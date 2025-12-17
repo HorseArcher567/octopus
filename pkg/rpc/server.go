@@ -3,17 +3,16 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/registry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-
-	"github.com/HorseArcher567/octopus/pkg/registry"
 )
 
 // ServerConfig 服务端配置
@@ -52,7 +51,9 @@ func (s *Server) Start() error {
 	// 1. 启用反射（如果配置了）
 	if s.config.EnableReflection {
 		reflection.Register(s.grpcServer)
-		log.Println("gRPC reflection enabled")
+		logger.Info("grpc reflection enabled",
+			"app_name", s.config.AppName,
+		)
 	}
 
 	// 2. 创建监听器
@@ -71,10 +72,16 @@ func (s *Server) Start() error {
 	}
 
 	// 4. 启动 gRPC 服务器
-	log.Printf("Starting RPC server at %s", addr)
+	logger.Info("starting rpc server",
+		"addr", addr,
+		"app_name", s.config.AppName,
+	)
 	go func() {
 		if err := s.grpcServer.Serve(lis); err != nil {
-			log.Printf("Server stopped: %v", err)
+			logger.Error("server stopped",
+				"error", err,
+				"app_name", s.config.AppName,
+			)
 		}
 	}()
 
@@ -108,7 +115,11 @@ func (s *Server) registerToEtcd() error {
 	}
 
 	s.registry = reg
-	log.Printf("Application registered: %s (instance: %s:%d)", s.config.AppName, s.config.Host, s.config.Port)
+	logger.Info("application registered to etcd",
+		"app_name", s.config.AppName,
+		"addr", s.config.Host,
+		"port", s.config.Port,
+	)
 	return nil
 }
 
@@ -118,21 +129,28 @@ func (s *Server) waitForShutdown() {
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 	<-sigChan
 
-	log.Println("Shutting down gracefully...")
+	logger.Info("shutting down gracefully",
+		"app_name", s.config.AppName,
+	)
 
 	// 1. 注销服务
 	if s.registry != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.registry.Unregister(ctx); err != nil {
-			log.Printf("Failed to unregister: %v", err)
+			logger.Error("failed to unregister",
+				"error", err,
+				"app_name", s.config.AppName,
+			)
 		}
 	}
 
 	// 2. 停止接受新请求
 	s.grpcServer.GracefulStop()
 
-	log.Println("Shutdown complete")
+	logger.Info("shutdown complete",
+		"app_name", s.config.AppName,
+	)
 }
 
 // Stop 停止服务器
