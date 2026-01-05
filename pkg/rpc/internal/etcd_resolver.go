@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -17,12 +18,15 @@ import (
 // EtcdResolverBuilder 实现gRPC的resolver.Builder接口
 type EtcdResolverBuilder struct {
 	etcdEndpoints []string
+	log           *slog.Logger
 }
 
 // NewBuilder 创建resolver builder
-func NewBuilder(endpoints []string) *EtcdResolverBuilder {
+// 从 context 中获取 logger，如果没有则使用 slog.Default()
+func NewBuilder(ctx context.Context, endpoints []string) *EtcdResolverBuilder {
 	return &EtcdResolverBuilder{
 		etcdEndpoints: endpoints,
+		log:           logger.FromContext(ctx),
 	}
 }
 
@@ -33,18 +37,19 @@ func (b *EtcdResolverBuilder) Scheme() string {
 
 // Build 创建一个新的resolver实例
 func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	logger.Info("building resolver for service",
-		"service", target.Endpoint(),
-		"etcd_endpoints", b.etcdEndpoints,
-	)
+	log := b.log.With("component", "resolver", "service", target.Endpoint())
+
+	log.Info("building resolver", "etcd_endpoints", b.etcdEndpoints)
 
 	r := &etcdResolver{
 		target:    target,
 		cc:        cc,
 		endpoints: b.etcdEndpoints,
 		ctx:       context.Background(),
-		addrs:     make(map[string]resolver.Address),
-		closed:    false,
+
+		log:    log,
+		addrs:  make(map[string]resolver.Address),
+		closed: false,
 	}
 
 	r.ctx, r.cancel = context.WithCancel(r.ctx)
@@ -55,11 +60,7 @@ func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientCo
 		DialTimeout: 5 * time.Second,
 	})
 	if err != nil {
-		logger.Error("failed to connect to etcd",
-			"error", err,
-			"etcd_endpoints", b.etcdEndpoints,
-			"service", target.Endpoint(),
-		)
+		log.Error("failed to connect to etcd", "error", err)
 		return nil, fmt.Errorf("failed to connect etcd: %w", err)
 	}
 	r.client = client
@@ -78,6 +79,7 @@ type etcdResolver struct {
 	endpoints []string
 	ctx       context.Context
 	cancel    context.CancelFunc
+	log       *slog.Logger
 	addrs     map[string]resolver.Address
 	mu        sync.RWMutex
 	closed    bool // 标记是否已关闭
@@ -87,10 +89,7 @@ type etcdResolver struct {
 func (r *etcdResolver) ResolveNow(resolver.ResolveNowOptions) {
 	// 触发一次立即查询
 	if err := r.loadServices(); err != nil {
-		logger.Error("resolve now failed",
-			"error", err,
-			"service", r.target.Endpoint(),
-		)
+		r.log.Error("resolve now failed", "error", err)
 	}
 }
 
@@ -104,19 +103,14 @@ func (r *etcdResolver) Close() {
 	if r.client != nil {
 		r.client.Close()
 	}
-	logger.Info("resolver closed",
-		"service", r.target.Endpoint(),
-	)
+	r.log.Info("resolver closed")
 }
 
 // watch 监听服务变化（带自动重连）
 func (r *etcdResolver) watch() {
 	// 首先加载现有服务
 	if err := r.loadServices(); err != nil {
-		logger.Error("failed to load services",
-			"error", err,
-			"service", r.target.Endpoint(),
-		)
+		r.log.Error("failed to load services", "error", err)
 	}
 
 	backoff := time.Second
@@ -147,10 +141,9 @@ func (r *etcdResolver) watch() {
 		}
 
 		// 发生错误，等待后重试
-		logger.Warn("watch error, retrying",
+		r.log.Warn("watch error, retrying",
 			"error", err,
 			"retry_delay", backoff,
-			"service", r.target.Endpoint(),
 		)
 		select {
 		case <-time.After(backoff):
@@ -199,10 +192,7 @@ func (r *etcdResolver) loadServices() error {
 
 	resp, err := r.client.Get(r.ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
-		logger.Error("failed to get services from etcd",
-			"error", err,
-			"service", r.target.Endpoint(),
-		)
+		r.log.Error("failed to get services from etcd", "error", err)
 		return err
 	}
 
@@ -211,10 +201,9 @@ func (r *etcdResolver) loadServices() error {
 	for _, kv := range resp.Kvs {
 		var instance registry.ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
-			logger.Error("failed to unmarshal instance",
+			r.log.Error("failed to unmarshal instance",
 				"error", err,
 				"key", string(kv.Key),
-				"service", r.target.Endpoint(),
 			)
 			continue
 		}
@@ -243,10 +232,9 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 	case mvccpb.PUT:
 		var instance registry.ServiceInstance
 		if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
-			logger.Error("failed to unmarshal instance",
+			r.log.Error("failed to unmarshal instance",
 				"error", err,
 				"key", key,
-				"service", r.target.Endpoint(),
 			)
 			return
 		}
@@ -255,18 +243,16 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 			Addr:     addr,
 			Metadata: &instance,
 		}
-		logger.Info("service instance added",
+		r.log.Info("service instance added",
 			"addr", addr,
 			"key", key,
-			"service", r.target.Endpoint(),
 		)
 
 	case mvccpb.DELETE:
 		if addr, ok := r.addrs[key]; ok {
-			logger.Info("service instance removed",
+			r.log.Info("service instance removed",
 				"addr", addr.Addr,
 				"key", key,
-				"service", r.target.Endpoint(),
 			)
 			delete(r.addrs, key)
 		}
@@ -283,16 +269,13 @@ func (r *etcdResolver) updateState() {
 	r.mu.RUnlock()
 
 	if len(addrs) == 0 {
-		logger.Warn("no service instances found",
-			"service", r.target.Endpoint(),
-		)
+		r.log.Warn("no service instances found")
 	} else {
 		addrList := make([]string, len(addrs))
 		for i, addr := range addrs {
 			addrList[i] = addr.Addr
 		}
-		logger.Info("discovered service instances",
-			"service", r.target.Endpoint(),
+		r.log.Info("discovered service instances",
 			"count", len(addrs),
 			"instances", addrList,
 		)

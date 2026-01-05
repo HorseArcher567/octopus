@@ -119,7 +119,7 @@ func main() {
     cfg.InstanceID = "instance-001"
 
     // 创建注册器
-    reg, _ := registry.NewRegistry(cfg, instance)
+    reg, _ := registry.NewRegistry(ctx, cfg, instance)
     
     // 注册服务
     reg.Register(context.Background())

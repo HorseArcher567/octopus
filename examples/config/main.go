@@ -30,7 +30,7 @@ func main() {
 	// 支持环境变量替换: ${ENV_VAR} 或 ${ENV_VAR:default}
 	os.Setenv("DB_HOST", "127.0.0.1")
 	var c Config
-	config.MustLoadWithEnvAndUnmarshal(*configFile, &c)
+	config.MustUnmarshalWithEnv(*configFile, &c)
 
 	// 直接使用配置
 	fmt.Printf("Starting %s at port %d\n", c.App.Name, c.App.Port)

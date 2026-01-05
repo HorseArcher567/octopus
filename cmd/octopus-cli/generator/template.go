@@ -33,7 +33,7 @@ import (
 func main() {
     // 1. 加载配置
     var cfg server.Config
-    config.MustLoadWithEnvAndUnmarshal("etc/config.yaml", &cfg)
+    config.MustUnmarshalWithEnv("etc/config.yaml", &cfg)
 
 	// 2. 创建 Logic
 	logic := logic.NewLogic()
@@ -43,7 +43,7 @@ func main() {
 
 	// 4. 创建 RPC Server（直接使用配置）
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.NewServer(&cfg.Server)
+	rpcServer := rpc.NewServer(ctx, &cfg.Server)
 
 	// 5. 注册服务（支持注册多个服务）
 	rpcServer.RegisterService(func(s *grpc.Server) {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -11,47 +12,41 @@ import (
 
 // Config 配置管理器
 type Config struct {
-	data map[string]any
-	mu   sync.RWMutex
+	data   map[string]any
+	format Format // 保存配置文件格式，用于Unmarshal时选择对应的TagName（预留功能：JSON->"json", YAML->"yaml", TOML->"toml"）
+	mu     sync.RWMutex
 }
 
 // New 创建一个新的配置管理器
+// 默认使用 FormatUnknown，具体格式通常在 Load/LoadBytes 阶段确定
 func New() *Config {
 	return &Config{
-		data: make(map[string]any),
+		data:   make(map[string]any),
+		format: FormatUnknown,
 	}
 }
 
-// Load 从文件加载配置并合并到现有配置
-// 如果需要完全替换配置，使用 LoadAndReplace
+// Load 从文件加载配置，完全替换现有配置
 func (c *Config) Load(filepath string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	data, err := parseFile(filepath)
+	format := detectFormat(filepath)
+	if format == FormatUnknown {
+		return fmt.Errorf("cannot detect format from file extension: %s", filepath)
+	}
+
+	data, err := parseFile(filepath, format)
 	if err != nil {
 		return fmt.Errorf("failed to load config from file %s: %w", filepath, err)
 	}
 
-	c.data = mergeMaps(c.data, data)
-	return nil
-}
-
-// LoadAndReplace 从文件加载配置并完全替换现有配置
-func (c *Config) LoadAndReplace(filepath string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	data, err := parseFile(filepath)
-	if err != nil {
-		return fmt.Errorf("failed to load config from file %s: %w", filepath, err)
-	}
-
+	c.format = format
 	c.data = data
 	return nil
 }
 
-// LoadBytes 从字节流加载配置并合并到现有配置
+// LoadBytes 从字节流加载配置，完全替换现有配置
 func (c *Config) LoadBytes(data []byte, format Format) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -61,41 +56,9 @@ func (c *Config) LoadBytes(data []byte, format Format) error {
 		return fmt.Errorf("failed to load config from bytes: %w", err)
 	}
 
-	c.data = mergeMaps(c.data, parsed)
-	return nil
-}
-
-// LoadBytesAndReplace 从字节流加载配置并完全替换现有配置
-func (c *Config) LoadBytesAndReplace(data []byte, format Format) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	parsed, err := parse(data, format)
-	if err != nil {
-		return fmt.Errorf("failed to load config from bytes: %w", err)
-	}
-
+	c.format = format
 	c.data = parsed
 	return nil
-}
-
-// Merge 合并配置（新配置会覆盖旧配置）
-func (c *Config) Merge(other *Config) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	other.mu.RLock()
-	defer other.mu.RUnlock()
-
-	c.data = mergeMaps(c.data, other.data)
-}
-
-// MergeMap 合并map配置
-func (c *Config) MergeMap(data map[string]any) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.data = mergeMaps(c.data, data)
 }
 
 // Set 设置配置值，支持路径访问（如 "database.host"）
@@ -136,13 +99,8 @@ func (c *Config) GetString(key string) string {
 // GetInt 获取整数配置值
 func (c *Config) GetInt(key string) int {
 	if val, ok := c.Get(key); ok {
-		switch v := val.(type) {
-		case int:
-			return v
-		case int64:
-			return int(v)
-		case float64:
-			return int(v)
+		if i, ok := toInt(val); ok {
+			return i
 		}
 	}
 	return 0
@@ -161,18 +119,41 @@ func (c *Config) GetBool(key string) bool {
 // GetFloat 获取浮点数配置值
 func (c *Config) GetFloat(key string) float64 {
 	if val, ok := c.Get(key); ok {
-		switch v := val.(type) {
-		case float64:
-			return v
-		case float32:
-			return float64(v)
-		case int:
-			return float64(v)
-		case int64:
-			return float64(v)
+		if f, ok := toFloat64(val); ok {
+			return f
 		}
 	}
 	return 0.0
+}
+
+// toInt 将值转换为int类型
+func toInt(val any) (int, bool) {
+	switch v := val.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+// toFloat64 将值转换为float64类型
+func toFloat64(val any) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	default:
+		return 0.0, false
+	}
 }
 
 // GetWithDefault 获取配置值，如果不存在则返回默认值
@@ -196,13 +177,8 @@ func (c *Config) GetStringWithDefault(key string, defaultValue string) string {
 // GetIntWithDefault 获取整数配置值，如果不存在则返回默认值
 func (c *Config) GetIntWithDefault(key string, defaultValue int) int {
 	if val, ok := c.Get(key); ok {
-		switch v := val.(type) {
-		case int:
-			return v
-		case int64:
-			return int(v)
-		case float64:
-			return int(v)
+		if i, ok := toInt(val); ok {
+			return i
 		}
 	}
 	return defaultValue
@@ -221,15 +197,8 @@ func (c *Config) GetBoolWithDefault(key string, defaultValue bool) bool {
 // GetFloatWithDefault 获取浮点数配置值，如果不存在则返回默认值
 func (c *Config) GetFloatWithDefault(key string, defaultValue float64) float64 {
 	if val, ok := c.Get(key); ok {
-		switch v := val.(type) {
-		case float64:
-			return v
-		case float32:
-			return float64(v)
-		case int:
-			return float64(v)
-		case int64:
-			return float64(v)
+		if f, ok := toFloat64(val); ok {
+			return f
 		}
 	}
 	return defaultValue
@@ -261,13 +230,8 @@ func (c *Config) GetIntSlice(key string) []int {
 		if slice, ok := val.([]any); ok {
 			result := make([]int, 0, len(slice))
 			for _, item := range slice {
-				switch v := item.(type) {
-				case int:
-					result = append(result, v)
-				case int64:
-					result = append(result, int(v))
-				case float64:
-					result = append(result, int(v))
+				if i, ok := toInt(item); ok {
+					result = append(result, i)
 				}
 			}
 			return result
@@ -301,15 +265,17 @@ func (c *Config) GetAll() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// 深拷贝以防止外部修改
-	return copyMap(c.data)
+	// 浅拷贝以防止外部修改第一层，嵌套map仍共享引用
+	// 在config包的使用场景中，配置通常通过Unmarshal转换为结构体，
+	// 很少直接修改返回的map，因此浅拷贝已足够且性能更好
+	return maps.Clone(c.data)
 }
 
 // GetSection 获取配置的某个段落
 func (c *Config) GetSection(key string) map[string]any {
 	if val, ok := c.Get(key); ok {
 		if m, ok := val.(map[string]any); ok {
-			return copyMap(m)
+			return maps.Clone(m)
 		}
 	}
 	return make(map[string]any)
@@ -343,14 +309,6 @@ func (c *Config) UnmarshalKey(key string, target interface{}) error {
 	return nil
 }
 
-// UnmarshalWithDecoder 使用自定义decoder解码
-func (c *Config) UnmarshalWithDecoder(decoder *mapstruct.Decoder, target interface{}) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return decoder.Decode(c.data, target)
-}
-
 // Clear 清空所有配置
 func (c *Config) Clear() {
 	c.mu.Lock()
@@ -361,7 +319,7 @@ func (c *Config) Clear() {
 
 // WriteToFile 将配置导出到文件
 // 根据文件扩展名自动选择格式（.json/.yaml/.yml/.toml）
-// 适用于调试、检查配置合并结果、保存修改后的配置等场景
+// 适用于调试、保存修改后的配置、格式转换等场景
 func (c *Config) WriteToFile(filepath string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -425,42 +383,6 @@ func (c *Config) setNested(key string, value any) {
 	}
 }
 
-// mergeMaps 合并两个map（递归合并）
-func mergeMaps(dst, src map[string]any) map[string]any {
-	result := copyMap(dst)
-
-	for key, srcVal := range src {
-		if dstVal, exists := result[key]; exists {
-			// 如果两边都是map，递归合并
-			if dstMap, dstOk := dstVal.(map[string]any); dstOk {
-				if srcMap, srcOk := srcVal.(map[string]any); srcOk {
-					result[key] = mergeMaps(dstMap, srcMap)
-					continue
-				}
-			}
-		}
-		// 否则直接覆盖
-		result[key] = srcVal
-	}
-
-	return result
-}
-
-// copyMap 深拷贝map
-func copyMap(src map[string]any) map[string]any {
-	dst := make(map[string]any, len(src))
-
-	for key, val := range src {
-		if m, ok := val.(map[string]any); ok {
-			dst[key] = copyMap(m)
-		} else {
-			dst[key] = val
-		}
-	}
-
-	return dst
-}
-
 // ============================================================================
 // 环境变量处理
 // ============================================================================
@@ -492,23 +414,30 @@ func expandEnvVar(value string) string {
 		return value
 	}
 
-	result := value
+	var builder strings.Builder
+	builder.Grow(len(value) * 2) // 预分配容量，避免多次扩容
+
 	start := 0
 	for {
-		startIdx := strings.Index(result[start:], "${")
+		startIdx := strings.Index(value[start:], "${")
 		if startIdx == -1 {
+			builder.WriteString(value[start:])
 			break
 		}
 		startIdx += start
 
-		endIdx := strings.Index(result[startIdx:], "}")
+		// 写入${之前的内容
+		builder.WriteString(value[start:startIdx])
+
+		endIdx := strings.Index(value[startIdx:], "}")
 		if endIdx == -1 {
+			builder.WriteString(value[startIdx:])
 			break
 		}
 		endIdx += startIdx
 
 		// 提取环境变量名和默认值
-		envExpr := result[startIdx+2 : endIdx]
+		envExpr := value[startIdx+2 : endIdx]
 		envName := envExpr
 		defaultValue := ""
 
@@ -523,10 +452,10 @@ func expandEnvVar(value string) string {
 			envValue = defaultValue
 		}
 
-		// 替换
-		result = result[:startIdx] + envValue + result[endIdx+1:]
-		start = startIdx + len(envValue)
+		// 写入替换后的值
+		builder.WriteString(envValue)
+		start = endIdx + 1
 	}
 
-	return result
+	return builder.String()
 }

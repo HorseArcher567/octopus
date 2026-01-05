@@ -153,7 +153,7 @@ grpcurl -plaintext -d '{"service": "ProductService"}' \
 
 ```go
 // 创建 RPC 服务器
-server := rpc.NewServer(config)
+server := rpc.NewServer(ctx, config)
 
 // 注册多个服务
 server.RegisterService(func(s *grpc.Server) {
@@ -176,7 +176,7 @@ server.Start()
 
 ```go
 // 通过 etcd 服务发现自动连接
-conn, err := rpc.NewClient(&rpc.ClientConfig{
+conn, err := rpc.NewClient(ctx, &rpc.ClientConfig{
     Target:   "multi-service-demo",
     EtcdAddr: []string{"127.0.0.1:2379"},
 })

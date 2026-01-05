@@ -64,33 +64,6 @@ func TestConfig_GetSection(t *testing.T) {
 	}
 }
 
-func TestConfig_Merge(t *testing.T) {
-	cfg1 := New()
-	cfg1.Set("name", "config1")
-	cfg1.Set("port", 8080)
-
-	cfg2 := New()
-	cfg2.Set("name", "config2")
-	cfg2.Set("enabled", true)
-
-	cfg1.Merge(cfg2)
-
-	// name 应该被覆盖
-	if val := cfg1.GetString("name"); val != "config2" {
-		t.Errorf("expected 'config2', got '%s'", val)
-	}
-
-	// port 应该保留
-	if val := cfg1.GetInt("port"); val != 8080 {
-		t.Errorf("expected 8080, got %d", val)
-	}
-
-	// enabled 应该被添加
-	if val := cfg1.GetBool("enabled"); val != true {
-		t.Errorf("expected true, got %v", val)
-	}
-}
-
 func TestConfig_Unmarshal(t *testing.T) {
 	type AppConfig struct {
 		Name    string
@@ -238,82 +211,6 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestLoadFiles(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建第一个配置文件
-	file1 := filepath.Join(tempDir, "config1.json")
-	data1 := `{"name": "config1", "port": 8080}`
-	if err := os.WriteFile(file1, []byte(data1), 0644); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	// 创建第二个配置文件
-	file2 := filepath.Join(tempDir, "config2.json")
-	data2 := `{"name": "config2", "enabled": true}`
-	if err := os.WriteFile(file2, []byte(data2), 0644); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	// 加载并合并配置
-	cfg, err := LoadFiles(file1, file2)
-	if err != nil {
-		t.Fatalf("failed to load files: %v", err)
-	}
-
-	// name 应该被第二个文件覆盖
-	if val := cfg.GetString("name"); val != "config2" {
-		t.Errorf("expected 'config2', got '%s'", val)
-	}
-
-	// port 应该保留
-	if val := cfg.GetInt("port"); val != 8080 {
-		t.Errorf("expected 8080, got %d", val)
-	}
-
-	// enabled 应该被添加
-	if val := cfg.GetBool("enabled"); val != true {
-		t.Errorf("expected true, got %v", val)
-	}
-}
-
-func TestLoadDir(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建多个配置文件
-	files := map[string]string{
-		"config1.json": `{"json_key": "json_value"}`,
-		"config2.yaml": "yaml_key: yaml_value\n",
-		"config3.toml": `toml_key = "toml_value"`,
-	}
-
-	for name, content := range files {
-		path := filepath.Join(tempDir, name)
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-	}
-
-	// 加载目录
-	cfg, err := LoadDir(tempDir)
-	if err != nil {
-		t.Fatalf("failed to load directory: %v", err)
-	}
-
-	// 检查所有配置都已加载
-	if val := cfg.GetString("json_key"); val != "json_value" {
-		t.Errorf("expected 'json_value', got '%s'", val)
-	}
-
-	if val := cfg.GetString("yaml_key"); val != "yaml_value" {
-		t.Errorf("expected 'yaml_value', got '%s'", val)
-	}
-
-	if val := cfg.GetString("toml_key"); val != "toml_value" {
-		t.Errorf("expected 'toml_value', got '%s'", val)
-	}
-}
-
 func TestLoadWithEnv(t *testing.T) {
 	// 设置测试环境变量
 	os.Setenv("TEST_HOST", "localhost")
@@ -389,23 +286,6 @@ func TestLoadFromBytes(t *testing.T) {
 
 	if val := cfg.GetString("name"); val != "test" {
 		t.Errorf("expected 'test', got '%s'", val)
-	}
-}
-
-func TestLoadFromMap(t *testing.T) {
-	data := map[string]any{
-		"name": "test",
-		"port": 8080,
-	}
-
-	cfg := LoadFromMap(data)
-
-	if val := cfg.GetString("name"); val != "test" {
-		t.Errorf("expected 'test', got '%s'", val)
-	}
-
-	if val := cfg.GetInt("port"); val != 8080 {
-		t.Errorf("expected 8080, got %d", val)
 	}
 }
 
@@ -490,8 +370,8 @@ func TestGetSlice(t *testing.T) {
 	}
 }
 
-// 测试 Load 方法的合并行为
-func TestConfigLoadMerge(t *testing.T) {
+// 测试 Load 方法的替换行为
+func TestConfigLoadReplace(t *testing.T) {
 	// 创建临时配置文件
 	tmpDir := t.TempDir()
 
@@ -514,14 +394,25 @@ func TestConfigLoadMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 加载第二个文件（应该合并）
+	// 验证第一个文件的内容
+	if val := cfg.GetString("app.name"); val != "test" {
+		t.Errorf("expected 'test', got '%s'", val)
+	}
+	if val := cfg.GetString("app.version"); val != "1.0" {
+		t.Errorf("expected '1.0', got '%s'", val)
+	}
+	if val := cfg.GetInt("port"); val != 8080 {
+		t.Errorf("expected 8080, got %d", val)
+	}
+
+	// 加载第二个文件（应该完全替换）
 	if err := cfg.Load(file2); err != nil {
 		t.Fatal(err)
 	}
 
-	// 验证合并结果
-	if val := cfg.GetString("app.name"); val != "test" {
-		t.Errorf("expected 'test', got '%s'", val)
+	// 验证替换结果：第一个文件的配置应该被完全替换
+	if cfg.Has("app.name") {
+		t.Error("app.name should not exist after replacement")
 	}
 	if val := cfg.GetString("app.version"); val != "2.0" {
 		t.Errorf("expected '2.0', got '%s'", val)
@@ -529,16 +420,16 @@ func TestConfigLoadMerge(t *testing.T) {
 	if val := cfg.GetBool("app.debug"); val != true {
 		t.Errorf("expected true, got %v", val)
 	}
-	if val := cfg.GetInt("port"); val != 8080 {
-		t.Errorf("expected 8080, got %d", val)
+	if cfg.Has("port") {
+		t.Error("port should not exist after replacement")
 	}
 	if val := cfg.GetInt("timeout"); val != 30 {
 		t.Errorf("expected 30, got %d", val)
 	}
 }
 
-// 测试 LoadAndReplace 方法
-func TestConfigLoadAndReplace(t *testing.T) {
+// 测试 Load 方法在空 Config 时的行为（直接加载）
+func TestConfigLoadOnEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	file1 := filepath.Join(tmpDir, "config1.json")
@@ -555,13 +446,22 @@ func TestConfigLoadAndReplace(t *testing.T) {
 
 	cfg := New()
 
-	// 加载第一个文件
+	// 加载第一个文件（空 Config，应该直接加载）
 	if err := cfg.Load(file1); err != nil {
 		t.Fatal(err)
 	}
 
-	// 使用 LoadAndReplace 加载第二个文件（应该完全替换）
-	if err := cfg.LoadAndReplace(file2); err != nil {
+	// 验证加载结果
+	if val := cfg.GetString("app"); val != "test1" {
+		t.Errorf("expected 'test1', got '%s'", val)
+	}
+	if val := cfg.GetInt("port"); val != 8080 {
+		t.Errorf("expected 8080, got %d", val)
+	}
+
+	// Load 本身就是完全替换，但这里先 Clear 再 Load 来演示替换行为
+	cfg.Clear()
+	if err := cfg.Load(file2); err != nil {
 		t.Fatal(err)
 	}
 
@@ -574,7 +474,7 @@ func TestConfigLoadAndReplace(t *testing.T) {
 	}
 	// port 应该不存在了
 	if cfg.Has("port") {
-		t.Error("port should not exist after LoadAndReplace")
+		t.Error("port should not exist after Clear and Load")
 	}
 }
 
@@ -637,8 +537,8 @@ func TestMustLoad(t *testing.T) {
 	}
 }
 
-// 测试 MustLoadAndUnmarshal 方法
-func TestMustLoadAndUnmarshal(t *testing.T) {
+// 测试 MustUnmarshal 方法
+func TestMustUnmarshal(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	file := filepath.Join(tmpDir, "config.json")
@@ -655,7 +555,7 @@ func TestMustLoadAndUnmarshal(t *testing.T) {
 	}
 
 	var c AppConfig
-	MustLoadAndUnmarshal(file, &c)
+	MustUnmarshal(file, &c)
 
 	if c.Name != "test-app" {
 		t.Errorf("expected 'test-app', got '%s'", c.Name)
@@ -668,8 +568,8 @@ func TestMustLoadAndUnmarshal(t *testing.T) {
 	}
 }
 
-// 测试 MustLoadWithEnvAndUnmarshal 方法
-func TestMustLoadWithEnvAndUnmarshal(t *testing.T) {
+// 测试 MustUnmarshalWithEnv 方法
+func TestMustUnmarshalWithEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 设置环境变量
@@ -694,7 +594,7 @@ func TestMustLoadWithEnvAndUnmarshal(t *testing.T) {
 	}
 
 	var c AppConfig
-	MustLoadWithEnvAndUnmarshal(file, &c)
+	MustUnmarshalWithEnv(file, &c)
 
 	if c.Name != "my-app" {
 		t.Errorf("expected 'my-app', got '%s'", c.Name)
@@ -765,27 +665,39 @@ func TestWriteToFile(t *testing.T) {
 func TestWriteToFile_UseCases(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 场景1: 配置合并后导出检查
+	// 场景1: 配置替换后导出检查
 	base := filepath.Join(tmpDir, "base.json")
 	os.WriteFile(base, []byte(`{"name": "app", "port": 8080}`), 0644)
 
 	prod := filepath.Join(tmpDir, "prod.json")
 	os.WriteFile(prod, []byte(`{"port": 9090, "env": "production"}`), 0644)
 
-	cfg, _ := LoadFiles(base, prod)
+	cfg := New()
+	cfg.Load(base)
 
-	merged := filepath.Join(tmpDir, "merged.json")
-	if err := cfg.WriteToFile(merged); err != nil {
-		t.Fatalf("failed to write merged config: %v", err)
-	}
-
-	// 验证合并结果
-	result, _ := Load(merged)
-	if result.GetString("name") != "app" {
+	// 验证第一个文件的内容
+	if cfg.GetString("name") != "app" {
 		t.Error("name should be 'app'")
 	}
+	if cfg.GetInt("port") != 8080 {
+		t.Error("port should be 8080")
+	}
+
+	// 加载第二个文件（应该完全替换）
+	cfg.Load(prod)
+
+	exported := filepath.Join(tmpDir, "exported.json")
+	if err := cfg.WriteToFile(exported); err != nil {
+		t.Fatalf("failed to write exported config: %v", err)
+	}
+
+	// 验证替换结果
+	result, _ := Load(exported)
+	if result.Has("name") {
+		t.Error("name should not exist after replacement")
+	}
 	if result.GetInt("port") != 9090 {
-		t.Error("port should be 9090 (overridden)")
+		t.Error("port should be 9090")
 	}
 	if result.GetString("env") != "production" {
 		t.Error("env should be 'production'")

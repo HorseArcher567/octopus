@@ -9,8 +9,10 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	// 1. 创建服务发现器
-	discovery, err := registry.NewDiscovery([]string{"localhost:2379",
+	discovery, err := registry.NewDiscovery(ctx, []string{"localhost:2379",
 		"localhost:2381",
 		"localhost:2383"})
 	if err != nil {
@@ -19,7 +21,6 @@ func main() {
 	defer discovery.Close()
 
 	// 2. 监听服务变化
-	ctx := context.Background()
 	if err := discovery.Watch(ctx, "user-service"); err != nil {
 		log.Fatalf("Failed to watch service: %v", err)
 	}

@@ -1,12 +1,11 @@
 # Config - 灵活的配置管理包
 
-一个功能强大、易于使用的 Go 语言配置管理库，支持多种配置格式（JSON、YAML、TOML），提供灵活的配置加载、合并和访问方式。
+一个功能强大、易于使用的 Go 语言配置管理库，支持多种配置格式（JSON、YAML、TOML），提供灵活的配置加载和访问方式。
 
 ## 特性
 
 - 🎯 **多格式支持**: JSON、YAML、TOML 三种主流配置格式，自动识别
 - 📁 **多种加载方式**: 从文件、字节流、Map 对象加载
-- 🔀 **配置合并**: 支持多个配置文件合并，后加载的覆盖先加载的
 - 🔑 **路径访问**: 支持点号分隔的嵌套路径访问（如 `database.host`）
 - 🌍 **环境变量**: 支持环境变量替换 `${ENV_VAR}` 和默认值 `${ENV_VAR:default}`
 - 🔄 **结构体转换**: 集成 mapstruct 包，轻松转换为结构体
@@ -72,7 +71,7 @@ func main() {
 
     // 一行代码加载并解析配置（类似 go-zero 的 conf.MustLoad）
     var c Config
-    config.MustLoadAndUnmarshal(*configFile, &c)
+    config.MustUnmarshal(*configFile, &c)
 
     // 直接使用配置
     fmt.Printf("Starting %s at port %d\n", c.App.Name, c.App.Port)
@@ -86,7 +85,7 @@ func main() {
 func main() {
     var c Config
     // 支持 ${ENV_VAR} 和 ${ENV_VAR:default} 格式的环境变量替换
-    config.MustLoadWithEnvAndUnmarshal("config.yaml", &c)
+    config.MustUnmarshalWithEnv("config.yaml", &c)
     
     fmt.Printf("Database: %s:%d\n", c.Database.Host, c.Database.Port)
 }
@@ -99,8 +98,6 @@ func main() {
 cfg := config.MustLoad("config.yaml")
 port := cfg.GetInt("app.port")
 
-// 加载多个配置文件并合并
-cfg := config.MustLoadFiles("base.yaml", "prod.yaml")
 
 // 加载并支持环境变量
 cfg := config.MustLoadWithEnv("config.yaml")
@@ -186,22 +183,7 @@ port = 8080
 cfg, err := config.LoadFromBytes(tomlData, config.FormatTOML)
 ```
 
-#### 3. 从 Map 加载
-
-```go
-data := map[string]any{
-    "name": "test",
-    "port": 8080,
-    "database": map[string]any{
-        "host": "localhost",
-        "port": 3306,
-    },
-}
-
-cfg := config.LoadFromMap(data)
-```
-
-#### 4. 转换为结构体
+#### 3. 转换为结构体
 
 ```go
 type AppConfig struct {
@@ -228,7 +210,7 @@ if err := cfg.Unmarshal(&app); err != nil {
 fmt.Printf("App: %+v\n", app)
 ```
 
-#### 5. 使用类型安全的默认值
+#### 4. 使用类型安全的默认值
 
 ```go
 // 类型安全的默认值方法，无需类型断言
@@ -240,7 +222,7 @@ timeout := cfg.GetFloatWithDefault("server.timeout", 30.0)
 fmt.Printf("Server: %s:%d, Debug: %v, Timeout: %.1f\n", host, port, debug, timeout)
 ```
 
-#### 6. 获取数组/切片配置
+#### 5. 获取数组/切片配置
 
 ```go
 // 获取字符串数组
@@ -261,38 +243,12 @@ items := cfg.GetSlice("items")
 
 ## 高级功能
 
-### 1. 配置合并
-
-```go
-// 方式1: 使用包级函数加载并合并多个文件（推荐）
-cfg, err := config.LoadFiles(
-    "config/default.json",
-    "config/production.json",
-    "config/local.json",
-)
-
-// 方式2: 加载目录
-cfg, err := config.LoadDir("config/")
-
-// 方式3: 手动合并（更灵活的控制）
-cfg := config.New()
-cfg.Load("config/default.json")     // 合并到现有配置
-cfg.Load("config/production.json")  // 继续合并
-
-// 如果需要完全替换而不是合并
-cfg.LoadAndReplace("config/override.json")
-```
-
-### 2. 导出配置到文件
+### 1. 导出配置到文件
 
 `WriteToFile` 方法可以将配置导出为文件，自动根据文件扩展名选择格式。适用于以下场景：
 
 ```go
-// 场景1: 检查配置合并结果
-cfg, _ := config.LoadFiles("base.yaml", "prod.yaml", "local.yaml")
-cfg.WriteToFile("merged-config.json") // 导出查看最终配置
-
-// 场景2: 环境变量替换后检查实际值
+// 场景1: 环境变量替换后检查实际值
 cfg, _ := config.LoadWithEnv("config.yaml")
 cfg.WriteToFile("resolved-config.yaml") // 查看环境变量替换后的值
 
@@ -395,15 +351,8 @@ if cfg.Has("feature.enabled") {
 // 动态设置配置值
 cfg.Set("server.port", 9090)
 cfg.Set("database.pool.size", 100)
-
-// 合并新的配置
-newConfig := map[string]any{
-    "cache": map[string]any{
-        "enabled": true,
-        "ttl": 300,
-    },
-}
-cfg.MergeMap(newConfig)
+cfg.Set("cache.enabled", true)
+cfg.Set("cache.ttl", 300)
 ```
 
 ## API 文档
@@ -412,12 +361,9 @@ cfg.MergeMap(newConfig)
 
 #### 加载方法
 
-- `Load(filepath string) error` - 从文件加载配置并合并
-- `LoadAndReplace(filepath string) error` - 从文件加载配置并完全替换
-- `LoadBytes(data []byte, format Format) error` - 从字节流加载并合并
-- `LoadBytesAndReplace(data []byte, format Format) error` - 从字节流加载并完全替换
-- `Merge(other *Config)` - 合并另一个配置
-- `MergeMap(data map[string]any)` - 合并 map 数据
+- `Load(filepath string) error` - 从文件加载配置，完全替换现有配置
+- `LoadBytes(data []byte, format Format) error` - 从字节流加载配置，完全替换现有配置
+- `Clear()` - 清空所有配置
 
 #### 读取方法
 
@@ -456,7 +402,6 @@ cfg.MergeMap(newConfig)
 
 - `Unmarshal(target interface{}) error` - 将配置转换为结构体
 - `UnmarshalKey(key string, target interface{}) error` - 将指定key转换为结构体
-- `UnmarshalWithDecoder(decoder *mapstruct.Decoder, target interface{}) error` - 使用自定义解码器
 
 #### 辅助方法
 
@@ -469,19 +414,15 @@ cfg.MergeMap(newConfig)
 **普通加载函数（返回错误）：**
 
 - `Load(path string) (*Config, error)` - 加载单个配置文件（自动识别格式）
-- `LoadFiles(paths ...string) (*Config, error)` - 加载多个配置文件并合并
-- `LoadDir(dir string) (*Config, error)` - 加载目录下的所有配置文件
 - `LoadFromBytes(data []byte, format Format) (*Config, error)` - 从字节流加载
-- `LoadFromMap(data map[string]any) *Config` - 从 map 加载
 - `LoadWithEnv(path string) (*Config, error)` - 加载配置并替换环境变量
 
 **Must* 便捷方法（失败时 panic，适合启动阶段）：**
 
 - `MustLoad(path string) *Config` - 加载配置文件，失败时 panic
-- `MustLoadFiles(paths ...string) *Config` - 加载并合并多个配置文件，失败时 panic
 - `MustLoadWithEnv(path string) *Config` - 加载配置并替换环境变量，失败时 panic
-- `MustLoadAndUnmarshal(path string, target interface{})` - 加载并直接解析到结构体，失败时 panic（最便捷）
-- `MustLoadWithEnvAndUnmarshal(path string, target interface{})` - 加载（支持环境变量）并解析到结构体，失败时 panic
+- `MustUnmarshal(path string, target interface{})` - 加载并直接解析到结构体，失败时 panic（最便捷）
+- `MustUnmarshalWithEnv(path string, target interface{})` - 加载（支持环境变量）并解析到结构体，失败时 panic
 
 ## 完整示例
 
@@ -570,7 +511,7 @@ type Config struct {
 func main() {
     // 方式1（推荐）: 最简洁 - 一行代码加载并解析（支持环境变量）
     var appConfig Config
-    config.MustLoadWithEnvAndUnmarshal("config.yaml", &appConfig)
+    config.MustUnmarshalWithEnv("config.yaml", &appConfig)
     
     fmt.Printf("Starting %s v%s\n", appConfig.App.Name, appConfig.App.Version)
     fmt.Printf("Server: %s:%d\n", appConfig.Server.Host, appConfig.Server.Port)
@@ -626,14 +567,14 @@ func loadConfig() (*config.Config, error) {
         env = "development"
     }
 
-    // 方式1: 使用快捷函数（推荐）
-    cfg, err := config.LoadFiles(
-        "config/default.yaml",
-        fmt.Sprintf("config/%s.yaml", env),
-        "config/local.yaml", // 本地配置（可选，不提交到版本控制）
-    )
+    // 根据环境加载对应的配置文件
+    configFile := fmt.Sprintf("config/%s.yaml", env)
+    cfg, err := config.Load(configFile)
+    if err != nil {
+        return nil, err
+    }
 
-    return cfg, err
+    return cfg, nil
 }
 
 func main() {
@@ -803,10 +744,12 @@ type Config struct {
     Debug      bool   `mapstruct:"debug_mode"`
 }
 
-// 使用自定义解码器
+// 如果需要使用自定义解码器，可以直接使用 mapstruct
 decoder := mapstruct.New().WithTagName("mapstruct")
 var cfg Config
-configData.UnmarshalWithDecoder(decoder, &cfg)
+if err := decoder.Decode(configData.GetAll(), &cfg); err != nil {
+    // 处理错误
+}
 ```
 
 ## 与 mapstruct 的集成
@@ -826,21 +769,22 @@ configData.UnmarshalWithDecoder(decoder, &cfg)
 
 1. **配置缓存**: 配置加载后会缓存在内存中，避免重复解析
 2. **并发安全**: Config 使用读写锁，支持并发读取
-3. **深拷贝**: GetAll() 和 GetSection() 返回深拷贝，防止外部修改
+3. **浅拷贝**: GetAll() 和 GetSection() 返回浅拷贝，防止外部修改第一层。在config包的使用场景中，配置通常通过Unmarshal转换为结构体，很少直接修改返回的map，因此浅拷贝已足够且性能更好
 4. **按需加载**: 只加载需要的配置文件，避免加载整个目录
 
 ## 常见问题
 
 ### Q: 如何处理配置文件不存在的情况？
 
-A: 使用 LoadFiles 加载多个文件时，如果某个文件不存在会返回错误。可以先检查文件是否存在：
+A: `Load` 函数在文件不存在时会返回错误。可以先检查文件是否存在：
 
 ```go
-files := []string{"config/default.yaml"}
-if _, err := os.Stat("config/local.yaml"); err == nil {
-    files = append(files, "config/local.yaml")
+configFile := "config.yaml"
+if _, err := os.Stat(configFile); err != nil {
+    // 使用默认配置文件
+    configFile = "config/default.yaml"
 }
-cfg, err := config.LoadFiles(files...)
+cfg, err := config.Load(configFile)
 ```
 
 ### Q: 如何支持其他配置格式？

@@ -12,6 +12,34 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// UnaryInjectLogger 将 logger 注入到请求 context 中
+// 应放在中间件链的最前面
+func UnaryInjectLogger(log *slog.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		ctx = logger.WithContext(ctx, log)
+		return handler(ctx, req)
+	}
+}
+
+// StreamInjectLogger 将 logger 注入到流式请求 context 中
+// 应放在中间件链的最前面
+func StreamInjectLogger(log *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := logger.WithContext(ss.Context(), log)
+		return handler(srv, &contextServerStream{ServerStream: ss, ctx: ctx})
+	}
+}
+
+// contextServerStream 包装 ServerStream 以覆盖 Context
+type contextServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *contextServerStream) Context() context.Context {
+	return s.ctx
+}
+
 // UnaryServerLogging 为 Unary RPC 提供日志中间件
 func UnaryServerLogging() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -66,7 +94,7 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 		)
 
 		// 包装 ServerStream 以注入 logger
-		wrappedStream := &loggingServerStream{
+		wrappedStream := &contextServerStream{
 			ServerStream: ss,
 			ctx:          logger.WithContext(ctx, log),
 		}
@@ -175,15 +203,6 @@ func extractRequestID(ctx context.Context) string {
 		}
 	}
 	return ""
-}
-
-type loggingServerStream struct {
-	grpc.ServerStream
-	ctx context.Context
-}
-
-func (s *loggingServerStream) Context() context.Context {
-	return s.ctx
 }
 
 type loggingClientStream struct {

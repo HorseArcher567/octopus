@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 type Discovery struct {
 	client    *clientv3.Client
 	appName   string
+	log       *slog.Logger
 	instances map[string]*ServiceInstance
 	mu        sync.RWMutex
 
@@ -24,7 +26,8 @@ type Discovery struct {
 }
 
 // NewDiscovery 创建发现器
-func NewDiscovery(etcdEndpoints []string) (*Discovery, error) {
+// 从 context 中获取 logger，如果没有则使用 slog.Default()
+func NewDiscovery(ctx context.Context, etcdEndpoints []string) (*Discovery, error) {
 	if len(etcdEndpoints) == 0 {
 		return nil, ErrEmptyEndpoints
 	}
@@ -38,8 +41,12 @@ func NewDiscovery(etcdEndpoints []string) (*Discovery, error) {
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
 	}
 
+	// 从 context 获取 logger 并添加组件信息
+	log := logger.FromContext(ctx).With("component", "discovery")
+
 	return &Discovery{
 		client:    client,
+		log:       log,
 		instances: make(map[string]*ServiceInstance),
 	}, nil
 }
@@ -51,6 +58,8 @@ func (d *Discovery) Watch(ctx context.Context, appName string) error {
 	}
 
 	d.appName = appName
+	// 更新 logger，添加 app_name 信息
+	d.log = d.log.With("app_name", appName)
 	prefix := fmt.Sprintf("/octopus/applications/%s/", appName)
 
 	// 1. 首先获取已有的服务实例
@@ -84,19 +93,17 @@ func (d *Discovery) loadInstances(ctx context.Context, prefix string) error {
 	for _, kv := range resp.Kvs {
 		var instance ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
-			logger.Error("failed to unmarshal instance",
+			d.log.Error("failed to unmarshal instance",
 				"error", err,
 				"key", string(kv.Key),
-				"app_name", d.appName,
 			)
 			continue
 		}
 		d.instances[string(kv.Key)] = &instance
-		logger.Info("loaded instance",
+		d.log.Info("loaded instance",
 			"key", string(kv.Key),
 			"addr", instance.Addr,
 			"port", instance.Port,
-			"app_name", d.appName,
 		)
 	}
 
@@ -111,9 +118,8 @@ func (d *Discovery) watchChanges(ctx context.Context, prefix string) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("watch stopped",
+			d.log.Info("watch stopped",
 				"reason", ctx.Err(),
-				"app_name", d.appName,
 			)
 			return
 		default:
@@ -125,10 +131,9 @@ func (d *Discovery) watchChanges(ctx context.Context, prefix string) {
 			continue
 		}
 
-		logger.Warn("watch error, retrying",
+		d.log.Warn("watch error, retrying",
 			"error", err,
 			"retry_delay", backoff,
-			"app_name", d.appName,
 		)
 		select {
 		case <-time.After(backoff):
@@ -161,28 +166,25 @@ func (d *Discovery) watchSingle(ctx context.Context, prefix string) error {
 			case mvccpb.PUT:
 				var instance ServiceInstance
 				if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
-					logger.Error("failed to unmarshal instance",
+					d.log.Error("failed to unmarshal instance",
 						"error", err,
 						"key", string(event.Kv.Key),
-						"app_name", d.appName,
 					)
 					continue
 				}
 				d.instances[string(event.Kv.Key)] = &instance
-				logger.Info("instance added/updated",
+				d.log.Info("instance added/updated",
 					"key", string(event.Kv.Key),
 					"addr", instance.Addr,
 					"port", instance.Port,
-					"app_name", d.appName,
 				)
 
 			case mvccpb.DELETE:
 				if inst, ok := d.instances[string(event.Kv.Key)]; ok {
-					logger.Info("instance removed",
+					d.log.Info("instance removed",
 						"key", string(event.Kv.Key),
 						"addr", inst.Addr,
 						"port", inst.Port,
-						"app_name", d.appName,
 					)
 					delete(d.instances, string(event.Kv.Key))
 				}
@@ -230,11 +232,11 @@ func (d *Discovery) Stop() {
 
 	select {
 	case <-done:
-		logger.Info("discovery stopped cleanly",
+		d.log.Info("discovery stopped cleanly",
 			"app_name", d.appName,
 		)
 	case <-time.After(5 * time.Second):
-		logger.Warn("discovery did not stop in time",
+		d.log.Warn("discovery did not stop in time",
 			"timeout", "5s",
 			"app_name", d.appName,
 		)

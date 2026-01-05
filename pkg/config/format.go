@@ -18,23 +18,19 @@ const (
 	FormatJSON Format = "json"
 	FormatYAML Format = "yaml"
 	FormatTOML Format = "toml"
-	FormatAuto Format = "auto" // 自动检测
+	// FormatUnknown 表示未知或无法从上下文推断的格式
+	// 在需要自动检测的场景下，通常会先返回 FormatUnknown，然后由调用方决定如何处理
+	FormatUnknown Format = "unknown"
 )
 
 // parseFile 从文件解析配置
-func parseFile(filepath string) (map[string]any, error) {
+// 注意：调用方需要在调用前确定并传入正确的 format
+func parseFile(filepath string, format Format) (map[string]any, error) {
 	// 读取文件内容
 	data, err := os.ReadFile(filepath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-
-	// 根据文件扩展名确定格式
-	format := detectFormat(filepath)
-	if format == FormatAuto {
-		return nil, fmt.Errorf("cannot detect format from file extension: %s", filepath)
-	}
-
 	return parse(data, format)
 }
 
@@ -90,7 +86,7 @@ func detectFormat(filename string) Format {
 	case ".toml":
 		return FormatTOML
 	default:
-		return FormatAuto
+		return FormatUnknown
 	}
 }
 
@@ -116,7 +112,7 @@ func marshal(data map[string]any, format Format) ([]byte, error) {
 // writeFile 将配置写入文件
 func writeFile(filepath string, data map[string]any) error {
 	format := detectFormat(filepath)
-	if format == FormatAuto {
+	if format == FormatUnknown {
 		return fmt.Errorf("cannot detect format from file extension: %s", filepath)
 	}
 
@@ -126,10 +122,4 @@ func writeFile(filepath string, data map[string]any) error {
 	}
 
 	return os.WriteFile(filepath, bytes, 0644)
-}
-
-// isSupportedFile 检查文件是否为支持的配置文件
-func isSupportedFile(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	return ext == ".json" || ext == ".yaml" || ext == ".yml" || ext == ".toml"
 }

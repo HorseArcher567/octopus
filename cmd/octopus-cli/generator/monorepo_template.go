@@ -295,7 +295,7 @@ import (
 func main() {
 	// 1. Load configuration
 	var cfg server.Config
-	config.MustLoadWithEnvAndUnmarshal("etc/config.yaml", &cfg)
+	config.MustUnmarshalWithEnv("etc/config.yaml", &cfg)
 
 	// 2. Create Logic
 	logic := logic.NewLogic()
@@ -305,7 +305,7 @@ func main() {
 
 	// 4. Create RPC Server
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.NewServer(&cfg.Server)
+	rpcServer := rpc.NewServer(ctx, &cfg.Server)
 
 	// 5. Register service
 	rpcServer.RegisterService(func(s *grpc.Server) {

@@ -2,20 +2,31 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"log/slog"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
+	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/logger"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"google.golang.org/grpc"
 )
 
-// UserServiceImpl 用户服务实现
-type UserServiceImpl struct {
-	pb.UnimplementedUserServiceServer
+// AppConfig 应用配置结构
+type AppConfig struct {
+	Logger logger.Config    `yaml:"logger"` // 日志配置
+	Server rpc.ServerConfig `yaml:"server"` // RPC服务器配置
 }
 
-func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-	logger.Info("get user called", "user_id", req.UserId)
+// UserServer 用户服务实现
+type UserServer struct {
+	pb.UnimplementedUserServer
+}
+
+func (s *UserServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
+	log := logger.FromContext(ctx) // 获取带有 method, request_id 的 logger
+	log.Info("get user called", "user_id", req.UserId)
 	return &pb.GetUserResponse{
 		UserId:   req.UserId,
 		Username: "testuser",
@@ -23,8 +34,9 @@ func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (
 	}, nil
 }
 
-func (s *UserServiceImpl) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
-	logger.Info("create user called",
+func (s *UserServer) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
+	log := logger.FromContext(ctx)
+	log.Info("create user called",
 		"username", req.Username,
 		"email", req.Email,
 	)
@@ -34,13 +46,14 @@ func (s *UserServiceImpl) CreateUser(ctx context.Context, req *pb.CreateUserRequ
 	}, nil
 }
 
-// OrderServiceImpl 订单服务实现
-type OrderServiceImpl struct {
-	pb.UnimplementedOrderServiceServer
+// OrderServer 订单服务实现
+type OrderServer struct {
+	pb.UnimplementedOrderServer
 }
 
-func (s *OrderServiceImpl) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.GetOrderResponse, error) {
-	logger.Info("get order called", "order_id", req.OrderId)
+func (s *OrderServer) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.GetOrderResponse, error) {
+	log := logger.FromContext(ctx)
+	log.Info("get order called", "order_id", req.OrderId)
 	return &pb.GetOrderResponse{
 		OrderId:     req.OrderId,
 		UserId:      1001,
@@ -50,8 +63,9 @@ func (s *OrderServiceImpl) GetOrder(ctx context.Context, req *pb.GetOrderRequest
 	}, nil
 }
 
-func (s *OrderServiceImpl) CreateOrder(ctx context.Context, req *pb.CreateOrderRequest) (*pb.CreateOrderResponse, error) {
-	logger.Info("create order called",
+func (s *OrderServer) CreateOrder(ctx context.Context, req *pb.CreateOrderRequest) (*pb.CreateOrderResponse, error) {
+	log := logger.FromContext(ctx)
+	log.Info("create order called",
 		"user_id", req.UserId,
 		"product", req.ProductName,
 		"amount", req.Amount,
@@ -62,13 +76,14 @@ func (s *OrderServiceImpl) CreateOrder(ctx context.Context, req *pb.CreateOrderR
 	}, nil
 }
 
-// ProductServiceImpl 产品服务实现
-type ProductServiceImpl struct {
-	pb.UnimplementedProductServiceServer
+// ProductServer 产品服务实现
+type ProductServer struct {
+	pb.UnimplementedProductServer
 }
 
-func (s *ProductServiceImpl) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.GetProductResponse, error) {
-	logger.Info("get product called", "product_id", req.ProductId)
+func (s *ProductServer) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.GetProductResponse, error) {
+	log := logger.FromContext(ctx)
+	log.Info("get product called", "product_id", req.ProductId)
 	return &pb.GetProductResponse{
 		ProductId:   req.ProductId,
 		Name:        "Sample Product",
@@ -78,8 +93,9 @@ func (s *ProductServiceImpl) GetProduct(ctx context.Context, req *pb.GetProductR
 	}, nil
 }
 
-func (s *ProductServiceImpl) ListProducts(ctx context.Context, req *pb.ListProductsRequest) (*pb.ListProductsResponse, error) {
-	logger.Info("list products called",
+func (s *ProductServer) ListProducts(ctx context.Context, req *pb.ListProductsRequest) (*pb.ListProductsResponse, error) {
+	log := logger.FromContext(ctx)
+	log.Info("list products called",
 		"page", req.Page,
 		"page_size", req.PageSize,
 	)
@@ -105,36 +121,46 @@ func (s *ProductServiceImpl) ListProducts(ctx context.Context, req *pb.ListProdu
 }
 
 func main() {
-	// 初始化日志
-	logger.Init(&logger.Config{
-		Level:     "debug",
-		Format:    "text",
-		AddSource: true,
-	})
+	// 解析命令行参数
+	configFile := flag.String("config", "config.yaml", "配置文件路径 (默认: config.yaml)")
+	flag.Parse()
 
-	// 配置服务器
-	config := &rpc.ServerConfig{
-		AppName:          "multi-service-demo",
-		Host:             "127.0.0.1",
-		Port:             9000,
-		EtcdAddr:         []string{"localhost:2379"},
-		TTL:              10,
-		EnableReflection: true, // 开启反射，便于使用 grpcurl/grpcui 调试
+	// 加载配置文件（支持环境变量替换）
+	var appConfig AppConfig
+	config.MustUnmarshalWithEnv(*configFile, &appConfig)
+
+	slog.Info("configuration loaded", "app config", appConfig)
+
+	// 初始化日志并设置为默认
+	log, closer := logger.MustNew(appConfig.Logger)
+	if closer != nil {
+		defer closer.Close()
 	}
+	slog.SetDefault(log) // 关键：设置为 slog 默认 logger
+
+	slog.Info("configuration loaded",
+		"config_file", *configFile,
+		"app_name", appConfig.Server.AppName,
+		"port", appConfig.Server.Port,
+	)
 
 	// 创建 RPC 服务器
-	server := rpc.NewServer(config)
+	ctx := context.Background()
+	server := rpc.NewServer(ctx, &appConfig.Server)
 
 	// 注册多个服务
 	server.RegisterService(func(s *grpc.Server) {
-		pb.RegisterUserServiceServer(s, &UserServiceImpl{})
-		pb.RegisterOrderServiceServer(s, &OrderServiceImpl{})
-		pb.RegisterProductServiceServer(s, &ProductServiceImpl{})
+		pb.RegisterUserServer(s, &UserServer{})
+		pb.RegisterOrderServer(s, &OrderServer{})
+		pb.RegisterProductServer(s, &ProductServer{})
 	})
 
 	// 启动服务器
-	logger.Info("starting multi-service server", "port", 9000)
+	slog.Info("starting multi-service server",
+		"app_name", appConfig.Server.AppName,
+		"address", fmt.Sprintf("%s:%d", appConfig.Server.Host, appConfig.Server.Port),
+	)
 	if err := server.Start(); err != nil {
-		logger.Error("failed to start server", "error", err)
+		slog.Error("failed to start server", "error", err)
 	}
 }

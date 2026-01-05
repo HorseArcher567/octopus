@@ -17,7 +17,7 @@ var (
 type Decoder struct {
 	// TagName 指定用于字段映射的标签名
 	// 默认为空字符串（使用字段名作为key）
-	// 可选值: "mapstructure", "json", 或其他自定义标签名
+	// 可选值: "mapstruct", "json", 或其他自定义标签名, 默认使用 "yaml" 标签
 	TagName string
 	// StrictMode 严格模式，如果字段类型不匹配则返回错误
 	StrictMode bool
@@ -28,7 +28,7 @@ type Decoder struct {
 // New 创建一个新的解码器
 func New() *Decoder {
 	return &Decoder{
-		TagName:    "", // 默认使用字段名作为key
+		TagName:    "yaml", // 默认使用字段名作为key
 		StrictMode: false,
 		TimeLayout: time.RFC3339,
 	}

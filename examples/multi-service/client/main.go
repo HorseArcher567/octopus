@@ -12,7 +12,7 @@ import (
 func main() {
 	// 通过 etcd 服务发现连接到服务器
 	// AppName 是应用注册名，一个连接可以访问其下的所有 gRPC 服务
-	conn, err := rpc.NewClient(&rpc.ClientConfig{
+	conn, err := rpc.NewClient(context.Background(), &rpc.ClientConfig{
 		AppName:  "multi-service-demo",
 		EtcdAddr: []string{"localhost:2379"},
 	})
@@ -21,13 +21,14 @@ func main() {
 	}
 	defer conn.Close()
 
+	// 创建不同的 gRPC 服务客户端（共享同一个连接）
+	userClient := pb.NewUserClient(conn)
+	orderClient := pb.NewOrderClient(conn)
+	productClient := pb.NewProductClient(conn)
+
+	// 创建带超时的 context，用于所有 RPC 调用
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	// 创建不同的 gRPC 服务客户端（共享同一个连接）
-	userClient := pb.NewUserServiceClient(conn)
-	orderClient := pb.NewOrderServiceClient(conn)
-	productClient := pb.NewProductServiceClient(conn)
 
 	log.Println("=== Testing UserService ===")
 	testUserService(ctx, userClient)
@@ -41,7 +42,7 @@ func main() {
 	log.Println("\n✅ All tests completed successfully!")
 }
 
-func testUserService(ctx context.Context, client pb.UserServiceClient) {
+func testUserService(ctx context.Context, client pb.UserClient) {
 	// 测试 GetUser
 	getUserResp, err := client.GetUser(ctx, &pb.GetUserRequest{
 		UserId: 1001,
@@ -66,7 +67,7 @@ func testUserService(ctx context.Context, client pb.UserServiceClient) {
 		createUserResp.UserId, createUserResp.Message)
 }
 
-func testOrderService(ctx context.Context, client pb.OrderServiceClient) {
+func testOrderService(ctx context.Context, client pb.OrderClient) {
 	// 测试 GetOrder
 	getOrderResp, err := client.GetOrder(ctx, &pb.GetOrderRequest{
 		OrderId: 2001,
@@ -92,7 +93,7 @@ func testOrderService(ctx context.Context, client pb.OrderServiceClient) {
 		createOrderResp.OrderId, createOrderResp.Message)
 }
 
-func testProductService(ctx context.Context, client pb.ProductServiceClient) {
+func testProductService(ctx context.Context, client pb.ProductClient) {
 	// 测试 GetProduct
 	getProductResp, err := client.GetProduct(ctx, &pb.GetProductRequest{
 		ProductId: 1,

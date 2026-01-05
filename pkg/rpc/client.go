@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -28,12 +29,15 @@ type ClientConfig struct {
 }
 
 // NewClient 创建 RPC 客户端（自动服务发现）
-func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func NewClient(ctx context.Context, config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	// 1. 注册 etcd resolver（全局只注册一次）
 	registerOnce.Do(func() {
-		globalBuilder = internal.NewBuilder(config.EtcdAddr)
+		globalBuilder = internal.NewBuilder(ctx, config.EtcdAddr)
 		resolver.Register(globalBuilder)
-		logger.Info("etcd resolver registered",
+
+		// 从 builder 中获取 logger 用于后续日志
+		log := logger.FromContext(ctx)
+		log.Info("etcd resolver registered",
 			"etcd_endpoints", config.EtcdAddr,
 		)
 	})
@@ -59,13 +63,14 @@ func NewClient(config *ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn,
 
 	// 3. 创建连接
 	target := fmt.Sprintf("etcd:///%s", config.AppName)
-	logger.Info("connecting to service via etcd discovery",
+	log := logger.FromContext(ctx)
+	log.Info("connecting to service via etcd discovery",
 		"target_app", config.AppName,
 		"etcd_endpoints", config.EtcdAddr,
 	)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
-		logger.Error("failed to create connection",
+		log.Error("failed to create connection",
 			"error", err,
 			"target_app", config.AppName,
 		)
@@ -99,8 +104,8 @@ func NewClientWithEndpoints(endpoints []string, opts ...grpc.DialOption) (*grpc.
 }
 
 // MustNewClient 创建客户端，失败时 panic
-func MustNewClient(config *ClientConfig, opts ...grpc.DialOption) *grpc.ClientConn {
-	conn, err := NewClient(config, opts...)
+func MustNewClient(ctx context.Context, config *ClientConfig, opts ...grpc.DialOption) *grpc.ClientConn {
+	conn, err := NewClient(ctx, config, opts...)
 	if err != nil {
 		panic(err)
 	}

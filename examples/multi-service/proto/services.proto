@@ -5,7 +5,7 @@ package multi;
 option go_package = "proto/pb;pb";
 
 // 用户服务
-service UserService {
+service User {
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
 }
@@ -31,7 +31,7 @@ message CreateUserResponse {
 }
 
 // 订单服务
-service OrderService {
+service Order {
   rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
 }
@@ -60,7 +60,7 @@ message CreateOrderResponse {
 }
 
 // 产品服务
-service ProductService {
+service Product {
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,12 +13,13 @@ import (
 )
 
 func main() {
-	// 0. 初始化日志（可选，默认已经初始化）
-	logger.Init(&logger.Config{
+	// 0. 初始化日志
+	log, _, _ := logger.New(logger.Config{
 		Level:     "debug",
 		Format:    "text",
 		AddSource: true,
 	})
+	slog.SetDefault(log)
 
 	// 1. 配置服务实例信息
 	instance := &registry.ServiceInstance{
@@ -39,23 +41,24 @@ func main() {
 	cfg.AppName = "user-service"
 
 	// 3. 创建注册器
-	reg, err := registry.NewRegistry(cfg, instance)
+	ctx := context.Background()
+	reg, err := registry.NewRegistry(ctx, cfg, instance)
 	if err != nil {
-		logger.Error("failed to create registry", "error", err)
+		slog.Error("failed to create registry", "error", err)
 		os.Exit(1)
 	}
 	defer reg.Close()
 
 	// 4. 注册服务
 	if err := reg.Register(context.Background()); err != nil {
-		logger.Error("failed to register service", "error", err)
+		slog.Error("failed to register service", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("application registered successfully")
+	slog.Info("application registered successfully")
 
 	// 5. 这里可以启动你的实际业务服务
 	// 例如：启动gRPC服务器、HTTP服务器等
-	logger.Info("application is running",
+	slog.Info("application is running",
 		"addr", instance.Addr,
 		"port", instance.Port,
 	)
@@ -65,15 +68,15 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 	<-sigChan
 
-	logger.Info("shutting down gracefully")
+	slog.Info("shutting down gracefully")
 
 	// 7. 注销服务
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := reg.Unregister(ctx); err != nil {
-		logger.Error("failed to unregister", "error", err)
+	if err := reg.Unregister(shutdownCtx); err != nil {
+		slog.Error("failed to unregister", "error", err)
 	}
 
-	logger.Info("shutdown complete")
+	slog.Info("shutdown complete")
 }

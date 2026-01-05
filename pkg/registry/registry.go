@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ type Registry struct {
 	client   *clientv3.Client
 	config   *Config
 	instance *ServiceInstance
+	log      *slog.Logger
 
 	leaseID clientv3.LeaseID
 	ttl     int64
@@ -31,7 +33,8 @@ type Registry struct {
 }
 
 // NewRegistry 创建注册器
-func NewRegistry(cfg *Config, instance *ServiceInstance) (*Registry, error) {
+// 从 context 中获取 logger，如果没有则使用 slog.Default()
+func NewRegistry(ctx context.Context, cfg *Config, instance *ServiceInstance) (*Registry, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -57,10 +60,14 @@ func NewRegistry(cfg *Config, instance *ServiceInstance) (*Registry, error) {
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
 	}
 
+	// 从 context 获取 logger 并添加组件信息
+	log := logger.FromContext(ctx).With("component", "registry", "app_name", cfg.AppName)
+
 	return &Registry{
 		client:    client,
 		config:    cfg,
 		instance:  instance,
+		log:       log,
 		key:       fmt.Sprintf("/octopus/applications/%s/%s:%d", cfg.AppName, instance.Addr, instance.Port),
 		closeChan: make(chan struct{}),
 	}, nil
@@ -109,11 +116,10 @@ func (r *Registry) Register(ctx context.Context) error {
 	r.registered = true
 	r.mu.Unlock()
 
-	logger.Info("application registered",
+	r.log.Info("application registered",
 		"key", r.key,
 		"lease_id", r.leaseID,
 		"ttl", r.ttl,
-		"app_name", r.config.AppName,
 		"instance", fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
 	)
 	return nil
@@ -127,10 +133,9 @@ func (r *Registry) keepAlive(ctx context.Context) {
 	for {
 		kaChannel, err := r.client.KeepAlive(ctx, r.leaseID)
 		if err != nil {
-			logger.Error("failed to start keep alive",
+			r.log.Error("failed to start keep alive",
 				"error", err,
 				"lease_id", r.leaseID,
-				"app_name", r.config.AppName,
 			)
 			time.Sleep(5 * time.Second)
 			continue
@@ -143,9 +148,8 @@ func (r *Registry) keepAlive(ctx context.Context) {
 			select {
 			case resp := <-kaChannel:
 				if resp == nil {
-					logger.Warn("keepalive channel closed, attempting to re-register",
+					r.log.Warn("keepalive channel closed, attempting to re-register",
 						"lease_id", r.leaseID,
-						"app_name", r.config.AppName,
 					)
 					shouldReregister = true
 					break
@@ -153,22 +157,17 @@ func (r *Registry) keepAlive(ctx context.Context) {
 				lastRenew = time.Now()
 
 			case <-ticker.C:
-				logger.Debug("lease active",
+				r.log.Debug("lease active",
 					"lease_id", r.leaseID,
 					"last_renewed", time.Since(lastRenew),
-					"app_name", r.config.AppName,
 				)
 
 			case <-ctx.Done():
-				logger.Info("keepalive stopped by context cancellation",
-					"app_name", r.config.AppName,
-				)
+				r.log.Info("keepalive stopped by context cancellation")
 				return
 
 			case <-r.closeChan:
-				logger.Info("keepalive stopped by close signal",
-					"app_name", r.config.AppName,
-				)
+				r.log.Info("keepalive stopped by close signal")
 				return
 			}
 
@@ -179,16 +178,14 @@ func (r *Registry) keepAlive(ctx context.Context) {
 
 		if shouldReregister && ctx.Err() == nil {
 			if err := r.reRegister(ctx); err != nil {
-				logger.Error("failed to re-register, retrying",
+				r.log.Error("failed to re-register, retrying",
 					"error", err,
 					"retry_delay", "5s",
-					"app_name", r.config.AppName,
 				)
 				time.Sleep(5 * time.Second)
 			} else {
-				logger.Info("successfully re-registered",
+				r.log.Info("successfully re-registered",
 					"lease_id", r.leaseID,
-					"app_name", r.config.AppName,
 				)
 			}
 		} else {
@@ -244,14 +241,9 @@ func (r *Registry) Unregister(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logger.Info("keepalive goroutine exited cleanly",
-			"app_name", r.config.AppName,
-		)
+		r.log.Info("keepalive goroutine exited cleanly")
 	case <-time.After(5 * time.Second):
-		logger.Warn("keepalive goroutine did not exit in time",
-			"timeout", "5s",
-			"app_name", r.config.AppName,
-		)
+		r.log.Warn("keepalive goroutine did not exit in time", "timeout", "5s")
 	}
 
 	// 3. 撤销租约，自动删除所有关联键值对
@@ -261,10 +253,9 @@ func (r *Registry) Unregister(ctx context.Context) error {
 
 		_, err := r.client.Revoke(revokeCtx, r.leaseID)
 		if err != nil {
-			logger.Error("failed to revoke lease",
+			r.log.Error("failed to revoke lease",
 				"error", err,
 				"lease_id", r.leaseID,
-				"app_name", r.config.AppName,
 			)
 		}
 	}
@@ -273,10 +264,7 @@ func (r *Registry) Unregister(ctx context.Context) error {
 	r.registered = false
 	r.mu.Unlock()
 
-	logger.Info("service unregistered",
-		"key", r.key,
-		"app_name", r.config.AppName,
-	)
+	r.log.Info("service unregistered", "key", r.key)
 	return nil
 }
 
