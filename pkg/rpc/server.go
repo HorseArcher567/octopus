@@ -19,13 +19,26 @@ import (
 
 // ServerConfig 服务端配置
 type ServerConfig struct {
-	AppName          string   `yaml:"app_name" json:"app_name" toml:"app_name"`                            // 应用名称
-	Host             string   `yaml:"host" json:"host" toml:"host"`                                        // 监听地址（如 0.0.0.0, 127.0.0.1）
-	Port             int      `yaml:"port" json:"port" toml:"port"`                                        // 监听端口
-	AdvertiseAddr    string   `yaml:"advertise_addr" json:"advertise_addr" toml:"advertise_addr"`          // 注册到 etcd 的地址（留空则自动获取本机 IP）
-	EtcdAddr         []string `yaml:"etcd_addr" json:"etcd_addr" toml:"etcd_addr"`                         // etcd 地址（可选，留空则不注册到服务发现）
-	TTL              int64    `yaml:"ttl" json:"ttl" toml:"ttl"`                                           // 租约时间（秒，默认 60）
-	EnableReflection bool     `yaml:"enable_reflection" json:"enable_reflection" toml:"enable_reflection"` // 是否启用反射（推荐开发/测试环境启用，便于 grpcurl/grpcui 调试）
+	// AppName 应用名称
+	AppName string `yaml:"appName" json:"appName" toml:"appName"`
+
+	// Host 监听地址（如 0.0.0.0, 127.0.0.1）
+	Host string `yaml:"host" json:"host" toml:"host"`
+
+	// Port 监听端口
+	Port int `yaml:"port" json:"port" toml:"port"`
+
+	// AdvertiseAddr 注册到 etcd 的地址（留空则自动获取本机 IP）
+	AdvertiseAddr string `yaml:"advertiseAddr" json:"advertiseAddr" toml:"advertiseAddr"`
+
+	// EtcdAddr etcd 地址（可选，留空则不注册到服务发现）
+	EtcdAddr []string `yaml:"etcdAddr" json:"etcdAddr" toml:"etcdAddr"`
+
+	// TTL 租约时间（秒，默认 60）
+	TTL int64 `yaml:"ttl" json:"ttl" toml:"ttl"`
+
+	// EnableReflection 是否启用反射（推荐开发/测试环境启用，便于 grpcurl/grpcui 调试）
+	EnableReflection bool `yaml:"enableReflection" json:"enableReflection" toml:"enableReflection"`
 }
 
 // Server RPC 服务器封装
@@ -40,7 +53,7 @@ type Server struct {
 // NewServer 创建 RPC 服务器
 // 从 context 中获取 logger，如果没有则使用 slog.Default()
 func NewServer(ctx context.Context, config *ServerConfig, opts ...grpc.ServerOption) *Server {
-	log := logger.FromContext(ctx).With("component", "rpc.server", "app_name", config.AppName)
+	log := logger.FromContext(ctx).With("component", "rpc.server", "appName", config.AppName)
 	return &Server{
 		config:     config,
 		grpcServer: grpc.NewServer(opts...),
@@ -95,14 +108,14 @@ func (s *Server) registerToEtcd() error {
 	// 确定注册地址
 	advertiseAddr := s.config.AdvertiseAddr
 
-	// 如果 advertise_addr 为空，检查 host 是否可用作注册地址
+	// 如果 advertiseAddr 为空，检查 host 是否可用作注册地址
 	if advertiseAddr == "" {
 		// 如果 Host 不是回环地址且不是 0.0.0.0，则使用 Host
 		if s.config.Host != "" && s.config.Host != "0.0.0.0" &&
 			s.config.Host != "127.0.0.1" && s.config.Host != "localhost" {
 			advertiseAddr = s.config.Host
 		} else {
-			// Host 无法被其他机器访问，必须配置 advertise_addr
+			// Host 无法被其他机器访问，必须配置 advertiseAddr
 			// 获取本机 IP 列表用于错误提示
 			var ipHint string
 			if ips, err := netutil.GetAllLocalIPs(); err == nil && len(ips) > 0 {
@@ -113,14 +126,14 @@ func (s *Server) registerToEtcd() error {
 				ipHint += "\nRecommended configuration:\n"
 				ipHint += "  server:\n"
 				ipHint += fmt.Sprintf("    host: %s\n", s.config.Host)
-				ipHint += fmt.Sprintf("    advertise_addr: %s  # or use ${ADVERTISE_ADDR} for env variable\n", ips[0])
+				ipHint += fmt.Sprintf("    advertiseAddr: %s  # or use ${ADVERTISE_ADDR} for env variable\n", ips[0])
 			} else {
-				ipHint = "\n\nPlease manually configure advertise_addr in your config file."
+				ipHint = "\n\nPlease manually configure advertiseAddr in your config file."
 			}
 
 			return fmt.Errorf(
 				"cannot register to etcd: host '%s' is not accessible from other machines\n"+
-					"You must explicitly set 'advertise_addr' to an IP address that other services can reach.%s",
+					"You must explicitly set 'advertiseAddr' to an IP address that other services can reach.%s",
 				s.config.Host, ipHint,
 			)
 		}
@@ -151,7 +164,7 @@ func (s *Server) registerToEtcd() error {
 
 	s.registry = reg
 	s.log.Info("application registered to etcd",
-		"advertise_addr", advertiseAddr,
+		"advertiseAddr", advertiseAddr,
 		"port", s.config.Port,
 	)
 	return nil

@@ -10,14 +10,14 @@ logger:
 
 # RPC 服务器配置
 server:
-  app_name: multi-service-demo  # 应用名称
-  host: 10.247.19.74             # 监听地址 (开发环境用 127.0.0.1，生产环境用 0.0.0.0)
-  port: 9000                     # 监听端口
-  advertise_addr: ""             # 注册到 etcd 的地址 (host 为 0.0.0.0/127.0.0.1 时必须配置)
-  etcd_addr:                     # etcd 地址 (留空则不注册到服务发现)
+  appName: multi-service-demo  # 应用名称
+  host: 10.247.19.74          # 监听地址 (开发环境用 127.0.0.1，生产环境用 0.0.0.0)
+  port: 9000                  # 监听端口
+  advertiseAddr: ""          # 注册到 etcd 的地址 (host 为 0.0.0.0/127.0.0.1 时必须配置)
+  etcdAddr:                   # etcd 地址 (留空则不注册到服务发现)
     - localhost:2379
     - localhost:2381
     - localhost:2383
-  ttl: 10                        # 租约时间 (秒，默认 60)
-  enable_reflection: true        # 是否启用反射 (推荐开发/测试环境启用)
+  ttl: 10                     # 租约时间 (秒，默认 60)
+  enableReflection: true       # 是否启用反射 (推荐开发/测试环境启用)
 

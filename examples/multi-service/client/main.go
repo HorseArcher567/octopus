@@ -6,20 +6,45 @@ import (
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
+	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 )
 
 func main() {
-	// 通过 etcd 服务发现连接到服务器
-	// AppName 是应用注册名，一个连接可以访问其下的所有 gRPC 服务
-	conn, err := rpc.NewClient(context.Background(), &rpc.ClientConfig{
-		AppName:  "multi-service-demo",
-		EtcdAddr: []string{"localhost:2379"},
-	})
+	ctx := context.Background()
+
+	// 方式1：从配置文件加载（推荐）
+	// 加载配置文件
+	cfg, err := config.LoadWithEnv("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 从配置文件中创建客户端
+	conn, err := rpc.NewClientFromConfig(ctx, cfg, "client")
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 	defer conn.Close()
+
+	// 方式2：直接使用代码配置（备选）
+	// conn, err := rpc.NewClient(ctx, &rpc.ClientConfig{
+	// 	AppName:  "multi-service-demo",
+	// 	EtcdAddr: []string{"localhost:2379"},
+	// })
+	// if err != nil {
+	// 	log.Fatalf("Failed to connect: %v", err)
+	// }
+	// defer conn.Close()
+
+	// 方式3：直连模式（用于开发测试）
+	// conn, err := rpc.NewClient(ctx, &rpc.ClientConfig{
+	// 	Endpoints: []string{"localhost:9000", "localhost:9001"},
+	// })
+	// if err != nil {
+	// 	log.Fatalf("Failed to connect: %v", err)
+	// }
+	// defer conn.Close()
 
 	// 创建不同的 gRPC 服务客户端（共享同一个连接）
 	userClient := pb.NewUserClient(conn)
