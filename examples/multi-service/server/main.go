@@ -3,21 +3,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
-	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/logger"
-	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"google.golang.org/grpc"
 )
-
-// AppConfig 应用配置结构
-type AppConfig struct {
-	Logger logger.Config    `yaml:"logger"` // 日志配置
-	Server rpc.ServerConfig `yaml:"server"` // RPC服务器配置
-}
 
 // UserServer 用户服务实现
 type UserServer struct {
@@ -125,42 +117,18 @@ func main() {
 	configFile := flag.String("config", "config.yaml", "配置文件路径 (默认: config.yaml)")
 	flag.Parse()
 
-	// 加载配置文件（支持环境变量替换）
-	var appConfig AppConfig
-	config.MustUnmarshalWithEnv(*configFile, &appConfig)
-
-	slog.Info("configuration loaded", "app config", appConfig)
-
-	// 初始化日志并设置为默认
-	log, closer := logger.MustNew(appConfig.Logger)
-	if closer != nil {
-		defer closer.Close()
-	}
-	slog.SetDefault(log) // 关键：设置为 slog 默认 logger
-
-	slog.Info("configuration loaded",
-		"config_file", *configFile,
-		"app_name", appConfig.Server.AppName,
-		"port", appConfig.Server.Port,
-	)
-
-	// 创建 RPC 服务器
-	ctx := context.Background()
-	server := rpc.NewServer(ctx, &appConfig.Server)
+	// 使用 app 包的默认实例，封装配置加载、日志初始化和 RPC 服务器创建。
+	app.Init(app.WithConfigFile(*configFile))
 
 	// 注册多个服务
-	server.RegisterService(func(s *grpc.Server) {
+	app.RegisterService(func(s *grpc.Server) {
 		pb.RegisterUserServer(s, &UserServer{})
 		pb.RegisterOrderServer(s, &OrderServer{})
 		pb.RegisterProductServer(s, &ProductServer{})
 	})
 
-	// 启动服务器
-	slog.Info("starting multi-service server",
-		"app_name", appConfig.Server.AppName,
-		"address", fmt.Sprintf("%s:%d", appConfig.Server.Host, appConfig.Server.Port),
-	)
-	if err := server.Start(); err != nil {
-		slog.Error("failed to start server", "error", err)
+	// 启动应用
+	if err := app.Run(); err != nil {
+		slog.Error("failed to run app", "error", err)
 	}
 }
