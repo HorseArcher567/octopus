@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
@@ -63,6 +65,9 @@ func main() {
 
 	log.Println("\n=== Testing ProductService ===")
 	testProductService(ctx, productClient)
+
+	log.Println("\n=== Testing ApiServer (HTTP) ===")
+	testApiServer()
 
 	log.Println("\n✅ All tests completed successfully!")
 }
@@ -144,4 +149,23 @@ func testProductService(ctx context.Context, client pb.ProductClient) {
 		log.Printf("   [%d] %s - $%.2f (stock: %d)",
 			i+1, product.Name, product.Price, product.Stock)
 	}
+}
+
+// testApiServer 测试 HTTP ApiServer 的 /hello 接口。
+func testApiServer() {
+	// 允许通过环境变量覆盖 API 地址，默认为本机 8080 端口。
+	apiAddr := os.Getenv("API_SERVER_ADDR")
+	if apiAddr == "" {
+		apiAddr = "http://localhost:8080"
+	}
+
+	url := apiAddr + "/hello"
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("❌ ApiServer /hello request failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Printf("✅ ApiServer /hello: status=%d, url=%s", resp.StatusCode, url)
 }

@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/HorseArcher567/octopus/pkg/api"
 	"google.golang.org/grpc"
 )
 
@@ -46,5 +47,15 @@ func WithServerOptions(opts ...grpc.ServerOption) Option {
 			return
 		}
 		a.grpcOpt = append(a.grpcOpt, opts...)
+	}
+}
+
+// WithHTTPOptions 传入 HTTP API Server 选项。
+func WithHTTPOptions(opts ...api.Option) Option {
+	return func(a *App) {
+		if len(opts) == 0 {
+			return
+		}
+		a.httpOpt = append(a.httpOpt, opts...)
 	}
 }

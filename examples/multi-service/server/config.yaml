@@ -9,7 +9,7 @@ logger:
   max_age: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
 
 # RPC 服务器配置
-server:
+rpcServer:
   appName: multi-service-demo  # 应用名称
   host: 10.247.19.74          # 监听地址 (开发环境用 127.0.0.1，生产环境用 0.0.0.0)
   port: 9000                  # 监听端口
@@ -20,4 +20,13 @@ server:
     - localhost:2383
   ttl: 10                     # 租约时间 (秒，默认 60)
   enableReflection: true       # 是否启用反射 (推荐开发/测试环境启用)
+
+
+# HTTP API 服务器配置
+apiServer:
+  appName: multi-service-demo  # 应用名称
+  host: 0.0.0.0               # HTTP 监听地址
+  port: 8080                  # HTTP 监听端口
+  mode: release               # Gin 模式: debug/release
+  enablePProf: false          # 是否启用 pprof
 

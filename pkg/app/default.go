@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/HorseArcher567/octopus/pkg/api"
 	"google.golang.org/grpc"
 )
 
@@ -34,9 +35,14 @@ func OnShutdown(h ShutdownHook) {
 	Default().OnShutdown(h)
 }
 
-// RegisterService 在默认应用上注册 gRPC 服务。
-func RegisterService(register func(s *grpc.Server)) {
-	Default().RegisterService(register)
+// RegisterRpcService 在默认应用上注册 gRPC 服务。
+func RegisterRpcService(register func(s *grpc.Server)) {
+	Default().RegisterRpcService(register)
+}
+
+// RegisterApiRoutes 在默认应用上注册 HTTP API 路由。
+func RegisterApiRoutes(register func(engine *api.Engine)) {
+	Default().RegisterApiRoutes(register)
 }
 
 // Run 启动默认应用。

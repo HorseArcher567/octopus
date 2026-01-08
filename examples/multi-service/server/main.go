@@ -6,8 +6,10 @@ import (
 	"log/slog"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
+	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 )
 
@@ -121,10 +123,19 @@ func main() {
 	app.Init(app.WithConfigFile(*configFile))
 
 	// 注册多个服务
-	app.RegisterService(func(s *grpc.Server) {
+	app.RegisterRpcService(func(s *grpc.Server) {
 		pb.RegisterUserServer(s, &UserServer{})
 		pb.RegisterOrderServer(s, &OrderServer{})
 		pb.RegisterProductServer(s, &ProductServer{})
+	})
+
+	// 注册一个简单的 HTTP Hello API
+	app.RegisterApiRoutes(func(engine *api.Engine) {
+		engine.GET("/hello", func(c *gin.Context) {
+			c.JSON(200, gin.H{
+				"message": "hello from apiServer",
+			})
+		})
 	})
 
 	// 启动应用

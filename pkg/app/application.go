@@ -7,16 +7,19 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/logger"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
-// Config 是应用级配置，聚合日志与 RPC 服务配置。
+// Config 是应用级配置，聚合日志、RPC 与 API 服务配置。
 type Config struct {
-	Logger logger.Config    `yaml:"logger" json:"logger" toml:"logger"`
-	Server rpc.ServerConfig `yaml:"server" json:"server" toml:"server"`
+	Logger    logger.Config    `yaml:"logger" json:"logger" toml:"logger"`
+	RpcServer rpc.ServerConfig `yaml:"rpcServer" json:"rpcServer" toml:"rpcServer"`
+	ApiServer api.ServerConfig `yaml:"apiServer" json:"apiServer" toml:"apiServer"`
 }
 
 // BeforeRunHook 在服务启动前执行，如果返回错误将中止启动流程。
@@ -25,17 +28,23 @@ type BeforeRunHook func(ctx context.Context, a *App) error
 // ShutdownHook 在服务关闭阶段执行，即使返回错误也会继续执行后续 Hook。
 type ShutdownHook func(ctx context.Context, a *App) error
 
-// App 封装一个 gRPC 服务应用的完整生命周期。
+// App 封装一个同时托管 gRPC 与 HTTP API 的应用生命周期。
 type App struct {
 	cfgPath string  // 配置文件路径
 	cfg     *Config // 解析后的配置
+
 	grpcOpt []grpc.ServerOption
+
+	// httpOpt 预留给 HTTP Server 的自定义选项。
+	httpOpt []api.Option
 
 	log       *slog.Logger
 	logCloser io.Closer
 
-	server *rpc.Server
-	ctx    context.Context
+	rpcServer *rpc.Server
+	apiServer *api.Server
+
+	ctx context.Context
 
 	beforeRunHooks []BeforeRunHook
 	shutdownHooks  []ShutdownHook
@@ -78,8 +87,15 @@ func (a *App) init() {
 	// 3. 创建带 logger 的根 context
 	a.ctx = logger.WithContext(a.ctx, a.log)
 
-	// 4. 创建 RPC 服务器
-	a.server = rpc.NewServer(a.ctx, &a.cfg.Server, a.grpcOpt...)
+	// 4. 创建 RPC 服务器（如果配置了）
+	if a.cfg.RpcServer.Port > 0 {
+		a.rpcServer = rpc.NewServer(a.ctx, &a.cfg.RpcServer, a.grpcOpt...)
+	}
+
+	// 5. 创建 HTTP API 服务器（如果配置了）
+	if a.cfg.ApiServer.Port > 0 {
+		a.apiServer = api.NewServer(a.ctx, &a.cfg.ApiServer, a.httpOpt...)
+	}
 }
 
 // OnBeforeRun 注册在 Run 之前执行的 Hook。
@@ -100,23 +116,35 @@ func (a *App) OnShutdown(h ShutdownHook) *App {
 	return a
 }
 
-// RegisterService 注册 gRPC 服务。
-func (a *App) RegisterService(register func(s *grpc.Server)) *App {
-	if a.server == nil {
-		panic("app: server is not initialized")
+// RegisterRpcService 注册 gRPC 服务。
+func (a *App) RegisterRpcService(register func(s *grpc.Server)) *App {
+	if a.rpcServer == nil {
+		panic("app: rpc server is not initialized (check RpcServer config)")
 	}
-	a.server.RegisterService(register)
+	a.rpcServer.RegisterService(register)
 	return a
 }
 
-// Run 启动应用，阻塞直到服务停止。
+// RegisterApiRoutes 注册 HTTP API 路由。
+// 通常在 main 中调用，通过传入函数在 gin.Engine 上注册路由。
+func (a *App) RegisterApiRoutes(register func(engine *api.Engine)) *App {
+	if a.apiServer == nil {
+		panic("app: api server is not initialized (check ApiServer config)")
+	}
+	if register != nil {
+		register(a.apiServer.Engine())
+	}
+	return a
+}
+
+// Run 启动应用，阻塞直到所有已启用的服务停止。
 // 执行顺序：
 // 1) 运行 OnBeforeRun Hooks（任一出错则中止启动）；
-// 2) 启动 RPC Server 并阻塞；
-// 3) Server 停止后运行 OnShutdown Hooks。
+// 2) 并发启动 RPC Server 和 HTTP API Server（根据配置决定是否启用）；
+// 3) 所有服务停止后运行 OnShutdown Hooks。
 func (a *App) Run() error {
-	if a.server == nil {
-		return fmt.Errorf("app: server is not initialized")
+	if a.rpcServer == nil && a.apiServer == nil {
+		return fmt.Errorf("app: no server is initialized, check RpcServer/ApiServer config")
 	}
 
 	// 1. BeforeRun hooks
@@ -124,18 +152,26 @@ func (a *App) Run() error {
 		return err
 	}
 
-	if a.log != nil {
-		a.log.Info("starting app",
-			"app_name", a.cfg.Server.AppName,
-			"host", a.cfg.Server.Host,
-			"port", a.cfg.Server.Port,
-		)
+	// 2. 并发启动服务
+	var g errgroup.Group
+
+	if a.rpcServer != nil {
+		srv := a.rpcServer
+		g.Go(func() error {
+			return srv.Start()
+		})
 	}
 
-	// 2. 启动 RPC 服务器（内部会阻塞直到优雅关闭完成）
-	err := a.server.Start()
+	if a.apiServer != nil {
+		httpSrv := a.apiServer
+		g.Go(func() error {
+			return httpSrv.Start()
+		})
+	}
 
-	// 3. Shutdown hooks（无论 server.Start 是否报错，都尝试执行）
+	err := g.Wait()
+
+	// 3. Shutdown hooks（无论服务是否报错，都尝试执行）
 	shutdownErr := a.runShutdownHooks()
 
 	// 关闭日志 writer（如果有）
