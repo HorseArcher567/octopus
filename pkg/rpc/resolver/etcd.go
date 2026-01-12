@@ -1,4 +1,4 @@
-package internal
+package resolver
 
 import (
 	"context"
@@ -8,25 +8,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
-	"github.com/HorseArcher567/octopus/pkg/registry"
+	"github.com/HorseArcher567/octopus/pkg/etcd"
+	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"google.golang.org/grpc/resolver"
+	grpcresolver "google.golang.org/grpc/resolver"
 )
 
 // EtcdResolverBuilder 实现gRPC的resolver.Builder接口
 type EtcdResolverBuilder struct {
-	etcdEndpoints []string
-	log           *slog.Logger
+	etcdConfig *etcd.Config
+	log        *slog.Logger
 }
 
 // NewBuilder 创建resolver builder
+// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
 // 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewBuilder(ctx context.Context, endpoints []string) *EtcdResolverBuilder {
+func NewBuilder(ctx context.Context, etcdConfig *etcd.Config) *EtcdResolverBuilder {
 	return &EtcdResolverBuilder{
-		etcdEndpoints: endpoints,
-		log:           logger.FromContext(ctx),
+		etcdConfig: etcdConfig,
+		log:        xlog.FromContext(ctx),
 	}
 }
 
@@ -36,33 +38,34 @@ func (b *EtcdResolverBuilder) Scheme() string {
 }
 
 // Build 创建一个新的resolver实例
-func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+func (b *EtcdResolverBuilder) Build(target grpcresolver.Target, cc grpcresolver.ClientConn, opts grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
 	log := b.log.With("component", "resolver", "service", target.Endpoint())
 
-	log.Info("building resolver", "etcd_endpoints", b.etcdEndpoints)
-
-	r := &etcdResolver{
-		target:    target,
-		cc:        cc,
-		endpoints: b.etcdEndpoints,
-		ctx:       context.Background(),
-
-		log:    log,
-		addrs:  make(map[string]resolver.Address),
-		closed: false,
+	// 使用 etcd.NewClient 创建 client
+	cfg := b.etcdConfig
+	if cfg == nil {
+		cfg = etcd.Default()
 	}
 
-	r.ctx, r.cancel = context.WithCancel(r.ctx)
-
-	// 连接etcd
-	client, err := clientv3.New(clientv3.Config{
-		Endpoints:   b.etcdEndpoints,
-		DialTimeout: 5 * time.Second,
-	})
+	client, err := etcd.NewClient(cfg)
 	if err != nil {
 		log.Error("failed to connect to etcd", "error", err)
 		return nil, fmt.Errorf("failed to connect etcd: %w", err)
 	}
+
+	log.Info("building resolver", "etcd_endpoints", cfg.Endpoints)
+
+	r := &etcdResolver{
+		target: target,
+		cc:     cc,
+		ctx:    context.Background(),
+
+		log:    log,
+		addrs:  make(map[string]grpcresolver.Address),
+		closed: false,
+	}
+
+	r.ctx, r.cancel = context.WithCancel(r.ctx)
 	r.client = client
 
 	// 启动服务发现
@@ -73,20 +76,19 @@ func (b *EtcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientCo
 
 // etcdResolver 实现gRPC的resolver.Resolver接口
 type etcdResolver struct {
-	target    resolver.Target
-	cc        resolver.ClientConn
-	client    *clientv3.Client
-	endpoints []string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	log       *slog.Logger
-	addrs     map[string]resolver.Address
-	mu        sync.RWMutex
-	closed    bool // 标记是否已关闭
+	target grpcresolver.Target
+	cc     grpcresolver.ClientConn
+	client *clientv3.Client
+	ctx    context.Context
+	cancel context.CancelFunc
+	log    *slog.Logger
+	addrs  map[string]grpcresolver.Address
+	mu     sync.RWMutex
+	closed bool // 标记是否已关闭
 }
 
 // ResolveNow gRPC调用此方法请求立即解析
-func (r *etcdResolver) ResolveNow(resolver.ResolveNowOptions) {
+func (r *etcdResolver) ResolveNow(grpcresolver.ResolveNowOptions) {
 	// 触发一次立即查询
 	if err := r.loadServices(); err != nil {
 		r.log.Error("resolve now failed", "error", err)
@@ -197,7 +199,7 @@ func (r *etcdResolver) loadServices() error {
 	}
 
 	r.mu.Lock()
-	r.addrs = make(map[string]resolver.Address)
+	r.addrs = make(map[string]grpcresolver.Address)
 	for _, kv := range resp.Kvs {
 		var instance registry.ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
@@ -209,7 +211,7 @@ func (r *etcdResolver) loadServices() error {
 		}
 
 		addr := fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
-		r.addrs[string(kv.Key)] = resolver.Address{
+		r.addrs[string(kv.Key)] = grpcresolver.Address{
 			Addr:     addr,
 			Metadata: &instance,
 		}
@@ -239,7 +241,7 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 			return
 		}
 		addr := fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
-		r.addrs[key] = resolver.Address{
+		r.addrs[key] = grpcresolver.Address{
 			Addr:     addr,
 			Metadata: &instance,
 		}
@@ -262,7 +264,7 @@ func (r *etcdResolver) handleEvent(event *clientv3.Event) {
 // updateState 更新gRPC连接状态
 func (r *etcdResolver) updateState() {
 	r.mu.RLock()
-	addrs := make([]resolver.Address, 0, len(r.addrs))
+	addrs := make([]grpcresolver.Address, 0, len(r.addrs))
 	for _, addr := range r.addrs {
 		addrs = append(addrs, addr)
 	}
@@ -281,5 +283,5 @@ func (r *etcdResolver) updateState() {
 		)
 	}
 
-	r.cc.UpdateState(resolver.State{Addresses: addrs})
+	r.cc.UpdateState(grpcresolver.State{Addresses: addrs})
 }

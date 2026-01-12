@@ -85,7 +85,7 @@ func main() {
 func main() {
     var c Config
     // 支持 ${ENV_VAR} 和 ${ENV_VAR:default} 格式的环境变量替换
-    config.MustUnmarshalWithEnv("config.yaml", &c)
+    config.MustUnmarshal("config.yaml", &c)
     
     fmt.Printf("Database: %s:%d\n", c.Database.Host, c.Database.Port)
 }
@@ -100,7 +100,7 @@ port := cfg.GetInt("app.port")
 
 
 // 加载并支持环境变量
-cfg := config.MustLoadWithEnv("config.yaml")
+cfg := config.MustLoad("config.yaml")
 ```
 
 #### 2. 需要错误处理的场景
@@ -249,7 +249,7 @@ items := cfg.GetSlice("items")
 
 ```go
 // 场景1: 环境变量替换后检查实际值
-cfg, _ := config.LoadWithEnv("config.yaml")
+cfg, _ := config.Load("config.yaml")
 cfg.WriteToFile("resolved-config.yaml") // 查看环境变量替换后的值
 
 // 场景3: 动态修改后保存
@@ -301,7 +301,7 @@ os.Setenv("DB_HOST", "localhost")
 os.Setenv("DB_PORT", "5432")
 
 // 加载配置并替换环境变量
-cfg, err := config.LoadWithEnv("config.json")
+cfg, err := config.Load("config.json")
 
 // DB_HOST = "localhost" (从环境变量获取)
 // DB_PORT = "5432" (从环境变量获取)
@@ -413,16 +413,16 @@ cfg.Set("cache.ttl", 300)
 
 **普通加载函数（返回错误）：**
 
-- `Load(path string) (*Config, error)` - 加载单个配置文件（自动识别格式）
+- `Load(path string) (*Config, error)` - 加载单个配置文件（自动识别格式，默认支持环境变量替换）
+- `LoadWithoutEnv(path string) (*Config, error)` - 加载配置文件但不替换环境变量
 - `LoadFromBytes(data []byte, format Format) (*Config, error)` - 从字节流加载
-- `LoadWithEnv(path string) (*Config, error)` - 加载配置并替换环境变量
 
 **Must* 便捷方法（失败时 panic，适合启动阶段）：**
 
-- `MustLoad(path string) *Config` - 加载配置文件，失败时 panic
-- `MustLoadWithEnv(path string) *Config` - 加载配置并替换环境变量，失败时 panic
-- `MustUnmarshal(path string, target interface{})` - 加载并直接解析到结构体，失败时 panic（最便捷）
-- `MustUnmarshalWithEnv(path string, target interface{})` - 加载（支持环境变量）并解析到结构体，失败时 panic
+- `MustLoad(path string) *Config` - 加载配置文件（默认支持环境变量替换），失败时 panic
+- `MustLoadWithoutEnv(path string) *Config` - 加载配置文件但不替换环境变量，失败时 panic
+- `MustUnmarshal(path string, target interface{})` - 加载并直接解析到结构体（默认支持环境变量替换），失败时 panic（最便捷）
+- `MustUnmarshalWithoutEnv(path string, target interface{})` - 加载并解析到结构体（不支持环境变量替换），失败时 panic
 
 ## 完整示例
 
@@ -511,7 +511,7 @@ type Config struct {
 func main() {
     // 方式1（推荐）: 最简洁 - 一行代码加载并解析（支持环境变量）
     var appConfig Config
-    config.MustUnmarshalWithEnv("config.yaml", &appConfig)
+    config.MustUnmarshal("config.yaml", &appConfig)
     
     fmt.Printf("Starting %s v%s\n", appConfig.App.Name, appConfig.App.Version)
     fmt.Printf("Server: %s:%d\n", appConfig.Server.Host, appConfig.Server.Port)
@@ -522,7 +522,7 @@ func main() {
         appConfig.Database.Name)
 
     // 方式2: 需要错误处理时
-    cfg, err := config.LoadWithEnv("config.yaml")
+    cfg, err := config.Load("config.yaml")
     if err != nil {
         panic(err)
     }

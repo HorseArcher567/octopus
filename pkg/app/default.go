@@ -12,8 +12,20 @@ var defaultApp *App
 
 // Init 初始化默认应用实例。
 // 应在 main 函数启动阶段调用一次。
-func Init(opts ...Option) {
-	defaultApp = New(opts...)
+// cfg 是框架配置，用户应该在外部加载自己的配置（嵌入 app.Framework），然后提取 Framework 部分传入。
+//
+// 示例：
+//
+//	type AppConfig struct {
+//	    app.Framework
+//	    Database struct { ... } `yaml:"database"`
+//	}
+//
+//	var cfg AppConfig
+//	config.MustUnmarshal("config.yaml", &cfg)
+//	app.Init(&cfg.Framework)
+func Init(cfg *Framework) {
+	defaultApp = New(cfg)
 }
 
 // Default 返回当前默认应用实例。

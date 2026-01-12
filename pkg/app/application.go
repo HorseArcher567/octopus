@@ -3,24 +3,18 @@ package app
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
-	"github.com/HorseArcher567/octopus/pkg/config"
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
-// Config 是应用级配置，聚合日志、RPC 与 API 服务配置。
-type Config struct {
-	Logger    logger.Config    `yaml:"logger" json:"logger" toml:"logger"`
-	RpcServer rpc.ServerConfig `yaml:"rpcServer" json:"rpcServer" toml:"rpcServer"`
-	ApiServer api.ServerConfig `yaml:"apiServer" json:"apiServer" toml:"apiServer"`
-}
+
 
 // BeforeRunHook 在服务启动前执行，如果返回错误将中止启动流程。
 type BeforeRunHook func(ctx context.Context, a *App) error
@@ -30,72 +24,73 @@ type ShutdownHook func(ctx context.Context, a *App) error
 
 // App 封装一个同时托管 gRPC 与 HTTP API 的应用生命周期。
 type App struct {
-	cfgPath string  // 配置文件路径
-	cfg     *Config // 解析后的配置
+	ctx context.Context
 
-	grpcOpt []grpc.ServerOption
-
-	// httpOpt 预留给 HTTP Server 的自定义选项。
-	httpOpt []api.Option
-
-	log       *slog.Logger
-	logCloser io.Closer
+	log *xlog.Logger // 封装的 Logger，管理资源生命周期
 
 	rpcServer *rpc.Server
 	apiServer *api.Server
-
-	ctx context.Context
 
 	beforeRunHooks []BeforeRunHook
 	shutdownHooks  []ShutdownHook
 }
 
-// New 创建一个新的 App 实例，会立即根据 Option 完成初始化。
-func New(opts ...Option) *App {
+// New 创建一个新的 App 实例，会立即根据框架配置完成初始化。
+// cfg 是框架配置，用户应该在外部加载自己的配置（嵌入 app.Framework），然后提取 Framework 部分传入。
+//
+// 示例：
+//
+//	type AppConfig struct {
+//	    app.Framework
+//	    Database struct { ... } `yaml:"database"`
+//	}
+//
+//	var cfg AppConfig
+//	config.MustUnmarshal("config.yaml", &cfg)
+//	application := app.New(&cfg.Framework)
+func New(cfg *Framework) *App {
+	if cfg == nil {
+		panic("app: framework config cannot be nil")
+	}
+
 	a := &App{
-		cfgPath: "config.yaml",
-		ctx:     context.Background(),
+		ctx: context.Background(),
 	}
 
-	for _, opt := range opts {
-		opt(a)
+	// 1. 初始化日志
+	if cfg.LoggerCfg != nil {
+		a.log = xlog.MustNew(*cfg.LoggerCfg)
+		if a.log != nil {
+			slog.SetDefault(a.log.Logger)
+		}
+	} else {
+		// 使用默认的 slog，创建一个包装器（stdout 输出，无需关闭）
+		a.log = xlog.MustNew(xlog.Config{
+			Level:  "info",
+			Format: "text",
+			Output: "stdout",
+		})
 	}
 
-	a.init()
-	return a
-}
+	// 2. 创建带 logger 的根 context
+	a.ctx = xlog.WithContext(a.ctx, a.log.Logger)
 
-// init 完成配置加载、日志初始化、RPC 服务器创建。
-func (a *App) init() {
-	// 1. 加载配置
-	if a.cfg == nil {
-		var cfg Config
-		config.MustUnmarshalWithEnv(a.cfgPath, &cfg)
-		a.cfg = &cfg
+	// 3. 设置 etcd 默认配置
+	if cfg.EtcdCfg != nil {
+		etcd.SetDefault(cfg.EtcdCfg)
 	}
-
-	// 2. 初始化日志
-	if a.log == nil {
-		log, closer := logger.MustNew(a.cfg.Logger)
-		a.log = log
-		a.logCloser = closer
-	}
-	if a.log != nil {
-		slog.SetDefault(a.log)
-	}
-
-	// 3. 创建带 logger 的根 context
-	a.ctx = logger.WithContext(a.ctx, a.log)
 
 	// 4. 创建 RPC 服务器（如果配置了）
-	if a.cfg.RpcServer.Port > 0 {
-		a.rpcServer = rpc.NewServer(a.ctx, &a.cfg.RpcServer, a.grpcOpt...)
+	if cfg.RpcSvrCfg != nil && cfg.RpcSvrCfg.Port > 0 {
+		a.rpcServer = rpc.NewServer(a.ctx, cfg.RpcSvrCfg, cfg.EtcdCfg)
 	}
 
 	// 5. 创建 HTTP API 服务器（如果配置了）
-	if a.cfg.ApiServer.Port > 0 {
-		a.apiServer = api.NewServer(a.ctx, &a.cfg.ApiServer, a.httpOpt...)
+	if cfg.ApiSvrCfg != nil && cfg.ApiSvrCfg.Port > 0 {
+		a.apiServer = api.NewServer(a.ctx, cfg.ApiSvrCfg)
 	}
+
+	return a
 }
 
 // OnBeforeRun 注册在 Run 之前执行的 Hook。
@@ -174,9 +169,9 @@ func (a *App) Run() error {
 	// 3. Shutdown hooks（无论服务是否报错，都尝试执行）
 	shutdownErr := a.runShutdownHooks()
 
-	// 关闭日志 writer（如果有）
-	if a.logCloser != nil {
-		_ = a.logCloser.Close()
+	// 关闭日志资源（如果有）
+	if a.log != nil {
+		_ = a.log.Close()
 	}
 
 	// 将 server.Start 的错误作为主错误返回，如果没有则返回 shutdown 错误信息。

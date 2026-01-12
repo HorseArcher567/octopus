@@ -1,4 +1,4 @@
-package logger
+package xlog
 
 // Config 日志配置
 type Config struct {

@@ -211,7 +211,7 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestLoadWithEnv(t *testing.T) {
+func TestLoad_EnvVars(t *testing.T) {
 	// 设置测试环境变量
 	os.Setenv("TEST_HOST", "localhost")
 	os.Setenv("TEST_PORT", "3306")
@@ -230,7 +230,7 @@ func TestLoadWithEnv(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	cfg, err := LoadWithEnv(configFile)
+	cfg, err := Load(configFile)
 	if err != nil {
 		t.Fatalf("failed to load config with env: %v", err)
 	}
@@ -568,8 +568,8 @@ func TestMustUnmarshal(t *testing.T) {
 	}
 }
 
-// 测试 MustUnmarshalWithEnv 方法
-func TestMustUnmarshalWithEnv(t *testing.T) {
+// 测试 MustUnmarshal 方法（支持环境变量）
+func TestMustUnmarshal_EnvVars(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 设置环境变量
@@ -594,7 +594,7 @@ func TestMustUnmarshalWithEnv(t *testing.T) {
 	}
 
 	var c AppConfig
-	MustUnmarshalWithEnv(file, &c)
+	MustUnmarshal(file, &c)
 
 	if c.Name != "my-app" {
 		t.Errorf("expected 'my-app', got '%s'", c.Name)

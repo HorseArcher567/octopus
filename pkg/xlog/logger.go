@@ -1,4 +1,4 @@
-package logger
+package xlog
 
 import (
 	"fmt"
@@ -10,19 +10,35 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/rotate"
 )
 
-// New 根据配置创建一个新的 slog.Logger
-// 如果输出目标是文件，返回的 io.Closer 需要调用方关闭
-func New(cfg Config) (*slog.Logger, io.Closer, error) {
+
+
+// Logger 封装了 slog.Logger 和资源清理逻辑
+// 通过嵌入 *slog.Logger，可以直接调用所有 slog 的方法
+type Logger struct {
+	*slog.Logger
+	closer io.Closer
+}
+
+func (l *Logger) Close() error {
+	if l == nil || l.closer == nil {
+		return nil
+	}
+	return l.closer.Close()
+}
+
+// New 根据配置创建一个新的 Logger
+// 返回的 Logger 实现了 io.Closer，使用完毕后应调用 Close() 关闭资源
+func New(cfg Config) (*Logger, error) {
 	cfg = normalize(cfg)
 
 	writer, closer, err := resolveWriter(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	level, err := resolveLevel(cfg.Level)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	opts := &slog.HandlerOptions{
@@ -37,19 +53,22 @@ func New(cfg Config) (*slog.Logger, io.Closer, error) {
 	case "text":
 		handler = slog.NewTextHandler(writer, opts)
 	default:
-		return nil, nil, fmt.Errorf("unsupported log format: %s", cfg.Format)
+		return nil, fmt.Errorf("unsupported log format: %s", cfg.Format)
 	}
 
-	return slog.New(handler), closer, nil
+	return &Logger{
+		Logger: slog.New(handler),
+		closer: closer,
+	}, nil
 }
 
-// MustNew 根据配置创建一个新的 slog.Logger（失败时 panic）
-func MustNew(cfg Config) (*slog.Logger, io.Closer) {
-	logger, closer, err := New(cfg)
+// MustNew 根据配置创建一个新的 Logger（失败时 panic）
+func MustNew(cfg Config) *Logger {
+	logger, err := New(cfg)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create logger: %v", err))
 	}
-	return logger, closer
+	return logger
 }
 
 func normalize(cfg Config) Config {

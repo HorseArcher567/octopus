@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +18,7 @@ func Logging() gin.HandlerFunc {
 
 		latency := time.Since(start)
 
-		log := logger.FromContext(c.Request.Context())
+		log := xlog.FromContext(c.Request.Context())
 		log.Info("http request",
 			"method", c.Request.Method,
 			"path", c.FullPath(),

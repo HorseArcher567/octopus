@@ -10,40 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
-	"github.com/HorseArcher567/octopus/pkg/netutil"
-	"github.com/HorseArcher567/octopus/pkg/registry"
+	"github.com/HorseArcher567/octopus/pkg/etcd"
+	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-// ServerConfig 服务端配置
-type ServerConfig struct {
-	// AppName 应用名称
-	AppName string `yaml:"appName" json:"appName" toml:"appName"`
-
-	// Host 监听地址（如 0.0.0.0, 127.0.0.1）
-	Host string `yaml:"host" json:"host" toml:"host"`
-
-	// Port 监听端口
-	Port int `yaml:"port" json:"port" toml:"port"`
-
-	// AdvertiseAddr 注册到 etcd 的地址（留空则自动获取本机 IP）
-	AdvertiseAddr string `yaml:"advertiseAddr" json:"advertiseAddr" toml:"advertiseAddr"`
-
-	// EtcdAddr etcd 地址（可选，留空则不注册到服务发现）
-	EtcdAddr []string `yaml:"etcdAddr" json:"etcdAddr" toml:"etcdAddr"`
-
-	// TTL 租约时间（秒，默认 60）
-	TTL int64 `yaml:"ttl" json:"ttl" toml:"ttl"`
-
-	// EnableReflection 是否启用反射（推荐开发/测试环境启用，便于 grpcurl/grpcui 调试）
-	EnableReflection bool `yaml:"enableReflection" json:"enableReflection" toml:"enableReflection"`
-}
-
 // Server RPC 服务器封装
 type Server struct {
 	config     *ServerConfig
+	etcdConfig *etcd.Config
 	grpcServer *grpc.Server
 	registry   *registry.Registry
 	listener   net.Listener
@@ -51,11 +28,13 @@ type Server struct {
 }
 
 // NewServer 创建 RPC 服务器
+// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
 // 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewServer(ctx context.Context, config *ServerConfig, opts ...grpc.ServerOption) *Server {
-	log := logger.FromContext(ctx).With("component", "rpc.server", "appName", config.AppName)
+func NewServer(ctx context.Context, config *ServerConfig, etcdConfig *etcd.Config, opts ...grpc.ServerOption) *Server {
+	log := xlog.FromContext(ctx).With("component", "rpc.server", "appName", config.AppName)
 	return &Server{
 		config:     config,
+		etcdConfig: etcdConfig,
 		grpcServer: grpc.NewServer(opts...),
 		log:        log,
 	}
@@ -83,8 +62,12 @@ func (s *Server) Start() error {
 	s.listener = lis
 
 	// 3. 注册服务到 etcd（如果配置了）
-	if len(s.config.EtcdAddr) > 0 {
-		if err := s.registerToEtcd(); err != nil {
+	cfg := s.etcdConfig
+	if cfg == nil {
+		cfg = etcd.Default()
+	}
+	if !cfg.IsEmpty() {
+		if err := s.registerToEtcd(cfg); err != nil {
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 	}
@@ -104,56 +87,24 @@ func (s *Server) Start() error {
 }
 
 // registerToEtcd 注册服务到 etcd
-func (s *Server) registerToEtcd() error {
+func (s *Server) registerToEtcd(etcdConfig *etcd.Config) error {
 	// 确定注册地址
 	advertiseAddr := s.config.AdvertiseAddr
-
-	// 如果 advertiseAddr 为空，检查 host 是否可用作注册地址
-	if advertiseAddr == "" {
-		// 如果 Host 不是回环地址且不是 0.0.0.0，则使用 Host
-		if s.config.Host != "" && s.config.Host != "0.0.0.0" &&
-			s.config.Host != "127.0.0.1" && s.config.Host != "localhost" {
-			advertiseAddr = s.config.Host
-		} else {
-			// Host 无法被其他机器访问，必须配置 advertiseAddr
-			// 获取本机 IP 列表用于错误提示
-			var ipHint string
-			if ips, err := netutil.GetAllLocalIPs(); err == nil && len(ips) > 0 {
-				ipHint = "\n\nDetected available IPs on this machine:\n"
-				for i, ip := range ips {
-					ipHint += fmt.Sprintf("  %d. %s\n", i+1, ip)
-				}
-				ipHint += "\nRecommended configuration:\n"
-				ipHint += "  server:\n"
-				ipHint += fmt.Sprintf("    host: %s\n", s.config.Host)
-				ipHint += fmt.Sprintf("    advertiseAddr: %s  # or use ${ADVERTISE_ADDR} for env variable\n", ips[0])
-			} else {
-				ipHint = "\n\nPlease manually configure advertiseAddr in your config file."
-			}
-
-			return fmt.Errorf(
-				"cannot register to etcd: host '%s' is not accessible from other machines\n"+
-					"You must explicitly set 'advertiseAddr' to an IP address that other services can reach.%s",
-				s.config.Host, ipHint,
-			)
-		}
-	}
 
 	instance := &registry.ServiceInstance{
 		Addr: advertiseAddr,
 		Port: s.config.Port,
 	}
 
-	cfg := registry.DefaultConfig()
-	cfg.EtcdEndpoints = s.config.EtcdAddr
-	cfg.AppName = s.config.AppName
+	regCfg := registry.DefaultConfig()
+	regCfg.AppName = s.config.AppName
 	if s.config.TTL > 0 {
-		cfg.TTL = s.config.TTL
+		regCfg.TTL = s.config.TTL
 	}
 
 	// 创建带 logger 的 context
-	ctx := logger.WithContext(context.Background(), s.log)
-	reg, err := registry.NewRegistry(ctx, cfg, instance)
+	ctx := xlog.WithContext(context.Background(), s.log)
+	reg, err := registry.NewRegistry(ctx, etcdConfig, regCfg, instance)
 	if err != nil {
 		return err
 	}

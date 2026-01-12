@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api/middleware"
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,7 +38,7 @@ func NewServer(ctx context.Context, cfg *ServerConfig, opts ...Option) *Server {
 		panic("api: server config is nil")
 	}
 
-	log := logger.FromContext(ctx).With("component", "api.server", "appName", cfg.AppName)
+	log := xlog.FromContext(ctx).With("component", "api.server", "appName", cfg.AppName)
 
 	s := &Server{
 		config: cfg,

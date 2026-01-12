@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -16,7 +16,7 @@ import (
 // 应放在中间件链的最前面
 func UnaryInjectLogger(log *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		ctx = logger.WithContext(ctx, log)
+		ctx = xlog.WithContext(ctx, log)
 		return handler(ctx, req)
 	}
 }
@@ -25,7 +25,7 @@ func UnaryInjectLogger(log *slog.Logger) grpc.UnaryServerInterceptor {
 // 应放在中间件链的最前面
 func StreamInjectLogger(log *slog.Logger) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		ctx := logger.WithContext(ss.Context(), log)
+		ctx := xlog.WithContext(ss.Context(), log)
 		return handler(srv, &contextServerStream{ServerStream: ss, ctx: ctx})
 	}
 }
@@ -46,7 +46,7 @@ func UnaryServerLogging() grpc.UnaryServerInterceptor {
 		start := time.Now()
 
 		// 创建带有请求信息的 logger（继承上游可能已有的字段）
-		log := logger.FromContext(ctx).With("method", info.FullMethod)
+		log := xlog.FromContext(ctx).With("method", info.FullMethod)
 		if requestID := extractRequestID(ctx); requestID != "" {
 			log = log.With("request_id", requestID)
 		}
@@ -54,7 +54,7 @@ func UnaryServerLogging() grpc.UnaryServerInterceptor {
 		log.Info("grpc request started")
 
 		// 将 logger 注入 context
-		ctx = logger.WithContext(ctx, log)
+		ctx = xlog.WithContext(ctx, log)
 
 		resp, err := handler(ctx, req)
 
@@ -83,7 +83,7 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 		start := time.Now()
 		ctx := ss.Context()
 
-		log := logger.FromContext(ctx).With("method", info.FullMethod)
+		log := xlog.FromContext(ctx).With("method", info.FullMethod)
 		if requestID := extractRequestID(ctx); requestID != "" {
 			log = log.With("request_id", requestID)
 		}
@@ -96,7 +96,7 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 		// 包装 ServerStream 以注入 logger
 		wrappedStream := &contextServerStream{
 			ServerStream: ss,
-			ctx:          logger.WithContext(ctx, log),
+			ctx:          xlog.WithContext(ctx, log),
 		}
 
 		err := handler(srv, wrappedStream)
@@ -124,7 +124,7 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 func UnaryClientLogging() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		start := time.Now()
-		log := logger.FromContext(ctx)
+		log := xlog.FromContext(ctx)
 
 		log.Debug("grpc client request started",
 			"method", method,
@@ -162,7 +162,7 @@ func UnaryClientLogging() grpc.UnaryClientInterceptor {
 func StreamClientLogging() grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		start := time.Now()
-		log := logger.FromContext(ctx)
+		log := xlog.FromContext(ctx)
 
 		log.Debug("grpc client stream started",
 			"method", method,

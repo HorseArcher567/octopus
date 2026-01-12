@@ -9,30 +9,69 @@ import (
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/resolver"
+	"google.golang.org/grpc/resolver/manual"
 )
 
 func main() {
 	ctx := context.Background()
 
+	{
+		// 1. 创建 manual resolver
+		r := manual.NewBuilderWithScheme("myservice")
+
+		// 2. 使用 NewClient 替代 Dial
+		conn, err := grpc.NewClient(
+			"myservice:///backend", // target
+			grpc.WithResolvers(r),  // 注入 resolver
+			grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			log.Fatalf("创建客户端失败: %v", err)
+		}
+		defer conn.Close()
+
+		// 3. 初始化或更新地址列表
+		r.UpdateState(resolver.State{
+			Addresses: []resolver.Address{
+				{Addr: "127.0.0.1:50051"},
+				{Addr: "127.0.0.1:50052"},
+				{Addr: "127.0.0.1:50053"},
+			},
+		})
+	}
+
 	// 方式1：从配置文件加载（推荐）
 	// 加载配置文件
-	cfg, err := config.LoadWithEnv("config.yaml")
+	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 从配置文件中加载 etcd 配置
+	var etcdCfg etcd.Config
+	if err := cfg.UnmarshalKey("etcd", &etcdCfg); err != nil {
+		log.Fatalf("Failed to load etcd config: %v", err)
+	}
+
 	// 从配置文件中创建客户端
-	conn, err := rpc.NewClientFromConfig(ctx, cfg, "client")
+	conn, err := rpc.NewClientFromConfig(ctx, &etcdCfg, cfg, "client")
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 	defer conn.Close()
 
 	// 方式2：直接使用代码配置（备选）
-	// conn, err := rpc.NewClient(ctx, &rpc.ClientConfig{
-	// 	AppName:  "multi-service-demo",
-	// 	EtcdAddr: []string{"localhost:2379"},
+	// etcdCfg := &etcd.Config{
+	// 	Endpoints: []string{"localhost:2379"},
+	// }
+	// conn, err := rpc.NewClient(ctx, etcdCfg, &rpc.ClientConfig{
+	// 	AppName: "multi-service-demo",
 	// })
 	// if err != nil {
 	// 	log.Fatalf("Failed to connect: %v", err)

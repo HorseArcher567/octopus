@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/etcd"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -33,8 +34,9 @@ type Registry struct {
 }
 
 // NewRegistry 创建注册器
+// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
 // 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewRegistry(ctx context.Context, cfg *Config, instance *ServiceInstance) (*Registry, error) {
+func NewRegistry(ctx context.Context, etcdConfig *etcd.Config, cfg *Config, instance *ServiceInstance) (*Registry, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -43,25 +45,14 @@ func NewRegistry(ctx context.Context, cfg *Config, instance *ServiceInstance) (*
 		return nil, fmt.Errorf("instance cannot be nil")
 	}
 
-	// 创建etcd客户端
-	clientCfg := clientv3.Config{
-		Endpoints:        cfg.EtcdEndpoints,
-		DialTimeout:      cfg.DialTimeout,
-		AutoSyncInterval: cfg.AutoSyncInterval,
-	}
-
-	if cfg.Username != "" {
-		clientCfg.Username = cfg.Username
-		clientCfg.Password = cfg.Password
-	}
-
-	client, err := clientv3.New(clientCfg)
+	// 使用 etcd.NewClient 创建 client
+	client, err := etcd.NewClient(etcdConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
 	}
 
 	// 从 context 获取 logger 并添加组件信息
-	log := logger.FromContext(ctx).With("component", "registry", "app_name", cfg.AppName)
+	log := xlog.FromContext(ctx).With("component", "registry", "app_name", cfg.AppName)
 
 	return &Registry{
 		client:    client,

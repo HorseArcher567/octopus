@@ -1,4 +1,4 @@
-package logger
+package xlog
 
 import (
 	"bytes"
@@ -58,15 +58,16 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, closer, err := New(tt.config)
+			log, err := New(tt.config)
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
-			if closer != nil {
-				closer.Close()
-			}
-			if logger == nil {
+			defer log.Close()
+			if log == nil {
 				t.Error("New() returned nil logger")
+			}
+			if log.Logger == nil {
+				t.Error("Logger field is nil")
 			}
 		})
 	}
@@ -156,16 +157,17 @@ func TestJSONFormat(t *testing.T) {
 }
 
 func TestMustNew(t *testing.T) {
-	logger, closer := MustNew(Config{
+	log := MustNew(Config{
 		Level:  "info",
 		Format: "text",
 		Output: "stdout",
 	})
-	if closer != nil {
-		closer.Close()
-	}
-	if logger == nil {
+	defer log.Close()
+	if log == nil {
 		t.Error("MustNew() returned nil logger")
+	}
+	if log.Logger == nil {
+		t.Error("Logger field is nil")
 	}
 }
 
@@ -181,4 +183,12 @@ func TestMustNewPanic(t *testing.T) {
 		Format: "text",
 		Output: "stdout",
 	})
+}
+
+func TestCloseWithNil(t *testing.T) {
+	var log *Logger
+	// 应该不会 panic
+	if err := log.Close(); err != nil {
+		t.Errorf("Close() on nil Logger should return nil error, got: %v", err)
+	}
 }

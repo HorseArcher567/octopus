@@ -1,4 +1,4 @@
-package logger
+package xlog
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 type loggerKey struct{}
 
-// FromContext 从 context 获取 logger，如果没有则返回 slog.Default()
+// FromContext 从 context 获取 *slog.Logger，如果没有则返回 slog.Default()
 func FromContext(ctx context.Context) *slog.Logger {
 	if l, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
 		return l
@@ -15,7 +15,7 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// WithContext 将 logger 存入 context
+// WithContext 将 *slog.Logger 存入 context
 func WithContext(ctx context.Context, l *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerKey{}, l)
 }

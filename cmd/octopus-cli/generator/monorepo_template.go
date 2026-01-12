@@ -295,7 +295,7 @@ import (
 func main() {
 	// 1. Load configuration
 	var cfg server.Config
-	config.MustUnmarshalWithEnv("etc/config.yaml", &cfg)
+	config.MustUnmarshal("etc/config.yaml", &cfg)
 
 	// 2. Create Logic
 	logic := logic.NewLogic()

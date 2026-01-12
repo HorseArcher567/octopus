@@ -8,7 +8,8 @@ import (
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/app"
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 )
@@ -19,7 +20,7 @@ type UserServer struct {
 }
 
 func (s *UserServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-	log := logger.FromContext(ctx) // 获取带有 method, request_id 的 logger
+	log := xlog.FromContext(ctx) // 获取带有 method, request_id 的 log
 	log.Info("get user called", "user_id", req.UserId)
 	return &pb.GetUserResponse{
 		UserId:   req.UserId,
@@ -29,7 +30,7 @@ func (s *UserServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.G
 }
 
 func (s *UserServer) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
-	log := logger.FromContext(ctx)
+	log := xlog.FromContext(ctx)
 	log.Info("create user called",
 		"username", req.Username,
 		"email", req.Email,
@@ -46,7 +47,7 @@ type OrderServer struct {
 }
 
 func (s *OrderServer) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.GetOrderResponse, error) {
-	log := logger.FromContext(ctx)
+	log := xlog.FromContext(ctx)
 	log.Info("get order called", "order_id", req.OrderId)
 	return &pb.GetOrderResponse{
 		OrderId:     req.OrderId,
@@ -58,7 +59,7 @@ func (s *OrderServer) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*p
 }
 
 func (s *OrderServer) CreateOrder(ctx context.Context, req *pb.CreateOrderRequest) (*pb.CreateOrderResponse, error) {
-	log := logger.FromContext(ctx)
+	log := xlog.FromContext(ctx)
 	log.Info("create order called",
 		"user_id", req.UserId,
 		"product", req.ProductName,
@@ -76,7 +77,7 @@ type ProductServer struct {
 }
 
 func (s *ProductServer) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.GetProductResponse, error) {
-	log := logger.FromContext(ctx)
+	log := xlog.FromContext(ctx)
 	log.Info("get product called", "product_id", req.ProductId)
 	return &pb.GetProductResponse{
 		ProductId:   req.ProductId,
@@ -88,7 +89,7 @@ func (s *ProductServer) GetProduct(ctx context.Context, req *pb.GetProductReques
 }
 
 func (s *ProductServer) ListProducts(ctx context.Context, req *pb.ListProductsRequest) (*pb.ListProductsResponse, error) {
-	log := logger.FromContext(ctx)
+	log := xlog.FromContext(ctx)
 	log.Info("list products called",
 		"page", req.Page,
 		"page_size", req.PageSize,
@@ -114,13 +115,40 @@ func (s *ProductServer) ListProducts(ctx context.Context, req *pb.ListProductsRe
 	}, nil
 }
 
+// AppConfig 应用配置，嵌入框架配置并添加自定义配置
+type AppConfig struct {
+	app.Framework // 嵌入框架配置（logger, etcd, rpcServer, apiServer）
+
+	// 这里可以添加你自己的配置，例如：
+	// Database struct {
+	//     Host     string `yaml:"host"`
+	//     Port     int    `yaml:"port"`
+	//     Username string `yaml:"username"`
+	//     Password string `yaml:"password"`
+	// } `yaml:"database"`
+	//
+	// Redis struct {
+	//     Addr string `yaml:"addr"`
+	//     DB   int    `yaml:"db"`
+	// } `yaml:"redis"`
+}
+
 func main() {
 	// 解析命令行参数
 	configFile := flag.String("config", "config.yaml", "配置文件路径 (默认: config.yaml)")
 	flag.Parse()
 
-	// 使用 app 包的默认实例，封装配置加载、日志初始化和 RPC 服务器创建。
-	app.Init(app.WithConfigFile(*configFile))
+	// 1. 定义应用配置（嵌入框架配置）
+	var cfg AppConfig
+
+	// 2. 在外部加载配置
+	config.MustUnmarshal(*configFile, &cfg)
+
+	// 3. 将框架配置部分传给 app.Init
+	app.Init(&cfg.Framework)
+
+	// 4. 如果需要访问自定义配置，直接使用 cfg：
+	// dbHost := cfg.Database.Host
 
 	// 注册多个服务
 	app.RegisterRpcService(func(s *grpc.Server) {

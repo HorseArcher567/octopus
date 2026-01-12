@@ -33,7 +33,7 @@ import (
 func main() {
     // 1. 加载配置
     var cfg server.Config
-    config.MustUnmarshalWithEnv("etc/config.yaml", &cfg)
+    config.MustUnmarshal("etc/config.yaml", &cfg)
 
 	// 2. 创建 Logic
 	logic := logic.NewLogic()

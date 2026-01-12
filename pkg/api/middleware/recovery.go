@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/HorseArcher567/octopus/pkg/logger"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,7 +13,7 @@ func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log := logger.FromContext(c.Request.Context())
+				log := xlog.FromContext(c.Request.Context())
 				log.Error("panic recovered in http handler", "panic", r)
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{

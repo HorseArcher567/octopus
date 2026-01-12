@@ -13,7 +13,7 @@
 
 ### 核心概念
 
-- `type Config struct { Logger logger.Config; Server rpc.ServerConfig }`
+- `type Framework struct { LoggerCfg, EtcdCfg, RpcSvrCfg, ApiSvrCfg }`
 - `type App struct { ... }`：聚合配置、日志、RPC server、根 `context.Context` 与 Hook。
 - Hook：
   - `type BeforeRunHook func(ctx context.Context, a *App) error`
@@ -110,7 +110,7 @@ type Option func(a *App)
 
 - `WithConfigFile(path string)`：
   - 指定配置文件路径（默认 `config.yaml`）。
-- `WithConfig(cfg *app.Config)`：
+- `WithConfig(cfg *app.Framework)`：
   - 直接提供配置对象，跳过文件加载。
 - `WithLogger(log *slog.Logger, closer io.Closer)`：
   - 使用已有 logger 实例，可选指定 `closer` 在 `Run` 结束时自动关闭。

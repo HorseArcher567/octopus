@@ -1,5 +1,16 @@
 # Multi-Service Demo 客户端配置文件
 
+# etcd 配置
+etcd:
+  endpoints:            # etcd 节点地址列表
+    - localhost:2379
+    - localhost:2381
+    - localhost:2383
+  dialTimeout: 5s       # 连接超时时间 (默认 5s)
+  autoSyncInterval: 60s # 自动同步集群成员间隔 (默认 60s)
+  # username: ""       # etcd 用户名 (可选)
+  # password: ""       # etcd 密码 (可选)
+
 # RPC 客户端配置
 # 支持两种模式：etcd 服务发现模式 或 直连模式
 
@@ -9,12 +20,6 @@
 client:
   # 目标应用名称（在服务发现系统中注册的名称）
   appName: multi-service-demo
-  
-  # etcd 地址列表
-  etcdAddr:
-    - localhost:2379
-    - localhost:2381
-    - localhost:2383
   
   # Keepalive 配置
   enableKeepalive: true
