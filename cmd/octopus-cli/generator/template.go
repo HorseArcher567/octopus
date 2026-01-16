@@ -43,7 +43,7 @@ func main() {
 
 	// 4. 创建 RPC Server（直接使用配置）
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.NewServer(ctx, &cfg.Server)
+	rpcServer := rpc.MustNewServer(&cfg.Server)
 
 	// 5. 注册服务（支持注册多个服务）
 	rpcServer.RegisterService(func(s *grpc.Server) {

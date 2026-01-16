@@ -52,7 +52,7 @@ logger:
   format: text          # 日志格式: json/text
   add_source: true      # 是否添加源码位置
   output: stdout        # 输出目标: stdout/stderr/文件路径
-  max_age: 7            # 日志保留天数 (仅文件输出有效)
+  maxAge: 7            # 日志保留天数 (仅文件输出有效)
 ```
 
 ### 服务器配置 (server)

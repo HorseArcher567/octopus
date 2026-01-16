@@ -1,14 +1,14 @@
+// Package resolver provides gRPC resolver implementations for service discovery.
+// It includes an etcd-based resolver that watches etcd for service instance changes.
 package resolver
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -16,137 +16,131 @@ import (
 	grpcresolver "google.golang.org/grpc/resolver"
 )
 
-// EtcdResolverBuilder 实现gRPC的resolver.Builder接口
+// EtcdResolverBuilder implements the gRPC resolver.Builder interface
+// for etcd-based service discovery.
 type EtcdResolverBuilder struct {
-	etcdConfig *etcd.Config
-	log        *slog.Logger
+	// log is the logger for logging operations.
+	log *xlog.Logger
+	// etcdClient is the etcd client for service discovery operations.
+	etcdClient *clientv3.Client
 }
 
-// NewBuilder 创建resolver builder
-// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
-// 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewBuilder(ctx context.Context, etcdConfig *etcd.Config) *EtcdResolverBuilder {
+// NewEtcdBuilder creates a new EtcdResolverBuilder.
+// The etcdClient must be a valid etcd client instance.
+func NewEtcdBuilder(log *xlog.Logger, etcdClient *clientv3.Client) *EtcdResolverBuilder {
 	return &EtcdResolverBuilder{
-		etcdConfig: etcdConfig,
-		log:        xlog.FromContext(ctx),
+		log:        log,
+		etcdClient: etcdClient,
 	}
 }
 
-// Scheme 返回resolver的scheme（用于gRPC URL）
+// Scheme returns the resolver scheme used in gRPC target URLs.
+// It returns SchemeEtcd.
 func (b *EtcdResolverBuilder) Scheme() string {
-	return "etcd"
+	return SchemeEtcd
 }
 
-// Build 创建一个新的resolver实例
-func (b *EtcdResolverBuilder) Build(target grpcresolver.Target, cc grpcresolver.ClientConn, opts grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
-	log := b.log.With("component", "resolver", "service", target.Endpoint())
-
-	// 使用 etcd.NewClient 创建 client
-	cfg := b.etcdConfig
-	if cfg == nil {
-		cfg = etcd.Default()
-	}
-
-	client, err := etcd.NewClient(cfg)
-	if err != nil {
-		log.Error("failed to connect to etcd", "error", err)
-		return nil, fmt.Errorf("failed to connect etcd: %w", err)
-	}
-
-	log.Info("building resolver", "etcd_endpoints", cfg.Endpoints)
-
+// Build creates a new resolver instance for the given target.
+// It starts a background goroutine to watch for service instance changes.
+// Build returns the resolver and nil error on success.
+func (b *EtcdResolverBuilder) Build(target grpcresolver.Target, cc grpcresolver.ClientConn,
+	opts grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
 	r := &etcdResolver{
-		target: target,
-		cc:     cc,
-		ctx:    context.Background(),
-
-		log:    log,
-		addrs:  make(map[string]grpcresolver.Address),
-		closed: false,
+		log:        b.log,
+		etcdClient: b.etcdClient,
+		cc:         cc,
+		target:     target,
+		addresses:  make(map[string]grpcresolver.Address),
+		done:       make(chan struct{}),
 	}
 
-	r.ctx, r.cancel = context.WithCancel(r.ctx)
-	r.client = client
-
-	// 启动服务发现
-	go r.watch()
+	r.ctx, r.cancel = context.WithCancel(context.Background())
+	go r.startWatch()
 
 	return r, nil
 }
 
-// etcdResolver 实现gRPC的resolver.Resolver接口
+// etcdResolver implements the gRPC resolver.Resolver interface
+// for etcd-based service discovery.
 type etcdResolver struct {
-	target grpcresolver.Target
-	cc     grpcresolver.ClientConn
-	client *clientv3.Client
-	ctx    context.Context
+	// log is the logger for logging operations.
+	log *xlog.Logger
+	// etcdClient is the etcd client for service discovery operations.
+	etcdClient *clientv3.Client
+
+	// ctx is the context for cancellation.
+	ctx context.Context
+	// cancel is the cancel function to stop operations.
 	cancel context.CancelFunc
-	log    *slog.Logger
-	addrs  map[string]grpcresolver.Address
-	mu     sync.RWMutex
-	closed bool // 标记是否已关闭
+
+	// cc is the gRPC client connection to update with discovered addresses.
+	cc grpcresolver.ClientConn
+	// target is the gRPC target to resolve.
+	target grpcresolver.Target
+
+	// mu protects the addresses map.
+	mu sync.RWMutex
+	// addresses maps etcd keys to gRPC addresses.
+	addresses map[string]grpcresolver.Address
+
+	// done is closed when the watch goroutine has stopped.
+	done chan struct{}
 }
 
-// ResolveNow gRPC调用此方法请求立即解析
+// ResolveNow triggers an immediate resolution of the target.
+// It reloads service instances from etcd and updates the client connection state.
 func (r *etcdResolver) ResolveNow(grpcresolver.ResolveNowOptions) {
-	// 触发一次立即查询
-	if err := r.loadServices(); err != nil {
+	if err := r.loadInstances(); err != nil {
 		r.log.Error("resolve now failed", "error", err)
 	}
 }
 
-// Close 关闭resolver
+// Close stops the resolver and releases associated resources.
+// It cancels the watch goroutine and stops monitoring etcd for changes.
+// Close returns immediately after canceling the context, without waiting
+// for the watch goroutine to exit. The goroutine will exit when it detects
+// the context cancellation.
 func (r *etcdResolver) Close() {
-	r.mu.Lock()
-	r.closed = true
-	r.mu.Unlock()
-
-	r.cancel()
-	if r.client != nil {
-		r.client.Close()
+	if r.cancel != nil {
+		r.cancel()
 	}
-	r.log.Info("resolver closed")
+	// Wait briefly for the goroutine to exit, but don't block indefinitely.
+	// This helps ensure clean shutdown, but Close() should return quickly.
+	select {
+	case <-r.done:
+		r.log.Info("resolver closed, watch goroutine stopped")
+	case <-time.After(100 * time.Millisecond):
+		r.log.Info("resolver closed, watch goroutine may still be running")
+	}
 }
 
-// watch 监听服务变化（带自动重连）
-func (r *etcdResolver) watch() {
-	// 首先加载现有服务
-	if err := r.loadServices(); err != nil {
-		r.log.Error("failed to load services", "error", err)
+// startWatch starts the watch loop that monitors etcd for service changes.
+// It handles retries with exponential backoff on errors.
+// The watch loop continues until the context is canceled.
+func (r *etcdResolver) startWatch() {
+	defer close(r.done)
+
+	if err := r.loadInstances(); err != nil {
+		r.log.Error("failed to load instances", "error", err)
 	}
 
 	backoff := time.Second
-	maxBackoff := 30 * time.Second
+	maxBackoff := 8 * time.Second
+	// healthyThreshold is the minimum duration a watch must run to be considered healthy.
+	// If a watch runs longer than this, we reset the backoff on the next retry.
+	healthyThreshold := 15 * time.Second
 
 	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		default:
+		start := time.Now()
+		r.doWatch()
+		duration := time.Since(start)
+
+		if duration >= healthyThreshold {
+			// Reset backoff to initial value after a healthy watch duration.
+			// This allows quick recovery after temporary network issues.
+			backoff = time.Second
 		}
 
-		// 尝试监听
-		err := r.watchOnce()
-		if err == nil {
-			backoff = time.Second // 正常退出，重置退避时间
-			continue
-		}
-
-		// 检查是否已关闭
-		r.mu.RLock()
-		closed := r.closed
-		r.mu.RUnlock()
-
-		if closed {
-			// 正常关闭，不打印错误
-			return
-		}
-
-		// 发生错误，等待后重试
-		r.log.Warn("watch error, retrying",
-			"error", err,
-			"retry_delay", backoff,
-		)
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
@@ -159,113 +153,112 @@ func (r *etcdResolver) watch() {
 	}
 }
 
-// watchOnce 执行单次监听
-func (r *etcdResolver) watchOnce() error {
-	prefix := fmt.Sprintf("/octopus/applications/%s/", r.target.Endpoint())
-	watchChan := r.client.Watch(r.ctx, prefix, clientv3.WithPrefix())
-
-	for watchResp := range watchChan {
-		// 检查是否被取消
-		if watchResp.Canceled {
-			return fmt.Errorf("watch was canceled")
-		}
-
-		// 检查错误
-		if err := watchResp.Err(); err != nil {
-			return fmt.Errorf("watch error: %w", err)
-		}
-
-		// 处理事件
-		for _, event := range watchResp.Events {
-			r.handleEvent(event)
-		}
-
-		// 更新gRPC连接
-		r.updateState()
+// doWatch performs a single watch operation on etcd.
+// It returns when the watch channel is closed or an error occurs.
+// Before starting a new watch, it reloads all instances to ensure state consistency
+// after a watch interruption.
+//
+// If loadInstances fails, doWatch returns immediately to avoid establishing
+// a watch with incomplete state. Watch only provides incremental updates,
+// so without the initial full state, we may miss existing instances and
+// cause load balancing to fail or services to be unreachable.
+func (r *etcdResolver) doWatch() {
+	if err := r.loadInstances(); err != nil {
+		r.log.Error("failed to load instances before watch", "error", err)
+		return
 	}
 
-	// watchChan关闭，可能需要重连
-	return fmt.Errorf("watch channel closed")
+	watchChan := r.etcdClient.Watch(r.ctx, r.prefix(), clientv3.WithPrefix())
+
+	for watchResp := range watchChan {
+		if err := watchResp.Err(); err != nil {
+			r.log.Error("watch error", "error", err)
+			break
+		}
+
+		r.handleEvents(watchResp.Events)
+
+		r.updateState()
+	}
 }
 
-// loadServices 加载现有服务实例
-func (r *etcdResolver) loadServices() error {
-	prefix := fmt.Sprintf("/octopus/applications/%s/", r.target.Endpoint())
-
-	resp, err := r.client.Get(r.ctx, prefix, clientv3.WithPrefix())
+// loadInstances loads all existing service instances from etcd.
+// It replaces the internal address map with the current state from etcd.
+func (r *etcdResolver) loadInstances() error {
+	resp, err := r.etcdClient.Get(r.ctx, r.prefix(), clientv3.WithPrefix())
 	if err != nil {
-		r.log.Error("failed to get services from etcd", "error", err)
+		r.log.Error("failed to get instances from etcd", "error", err)
 		return err
 	}
 
-	r.mu.Lock()
-	r.addrs = make(map[string]grpcresolver.Address)
+	addresses := make(map[string]grpcresolver.Address, len(resp.Kvs))
 	for _, kv := range resp.Kvs {
-		var instance registry.ServiceInstance
+		key := string(kv.Key)
+		var instance registry.Instance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
 			r.log.Error("failed to unmarshal instance",
-				"error", err,
-				"key", string(kv.Key),
-			)
+				"error", err, "key", key)
 			continue
 		}
 
-		addr := fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
-		r.addrs[string(kv.Key)] = grpcresolver.Address{
-			Addr:     addr,
+		addresses[key] = grpcresolver.Address{
+			Addr:     r.formatAddr(&instance),
 			Metadata: &instance,
 		}
 	}
+
+	r.mu.Lock()
+	r.addresses = addresses
 	r.mu.Unlock()
 
-	// 在锁外调用 updateState，避免死锁
 	r.updateState()
 	return nil
 }
 
-// handleEvent 处理etcd事件
-func (r *etcdResolver) handleEvent(event *clientv3.Event) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// handleEvents processes multiple etcd watch events.
+// It updates the internal address map based on PUT and DELETE events.
+// Events are processed in batch to minimize lock contention.
+func (r *etcdResolver) handleEvents(events []*clientv3.Event) {
+	for _, event := range events {
+		key := string(event.Kv.Key)
 
-	key := string(event.Kv.Key)
+		switch event.Type {
+		case mvccpb.PUT:
+			var instance registry.Instance
+			if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
+				r.log.Error("failed to unmarshal instance",
+					"error", err, "key", key)
+				continue
+			}
+			addr := r.formatAddr(&instance)
+			r.mu.Lock()
+			r.addresses[key] = grpcresolver.Address{
+				Addr:     addr,
+				Metadata: &instance,
+			}
+			r.mu.Unlock()
+			r.log.Info("service instance added", "addr", addr, "key", key)
 
-	switch event.Type {
-	case mvccpb.PUT:
-		var instance registry.ServiceInstance
-		if err := json.Unmarshal(event.Kv.Value, &instance); err != nil {
-			r.log.Error("failed to unmarshal instance",
-				"error", err,
-				"key", key,
-			)
-			return
-		}
-		addr := fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
-		r.addrs[key] = grpcresolver.Address{
-			Addr:     addr,
-			Metadata: &instance,
-		}
-		r.log.Info("service instance added",
-			"addr", addr,
-			"key", key,
-		)
-
-	case mvccpb.DELETE:
-		if addr, ok := r.addrs[key]; ok {
-			r.log.Info("service instance removed",
-				"addr", addr.Addr,
-				"key", key,
-			)
-			delete(r.addrs, key)
+		case mvccpb.DELETE:
+			r.mu.Lock()
+			if addr, ok := r.addresses[key]; ok {
+				delete(r.addresses, key)
+				r.mu.Unlock()
+				r.log.Info("service instance removed", "addr", addr.Addr, "key", key)
+			} else {
+				r.mu.Unlock()
+			}
 		}
 	}
 }
 
-// updateState 更新gRPC连接状态
+// updateState updates the gRPC client connection state with the current
+// set of discovered service instances.
+// It reads the address map under a read lock and calls UpdateState on the client connection.
 func (r *etcdResolver) updateState() {
 	r.mu.RLock()
-	addrs := make([]grpcresolver.Address, 0, len(r.addrs))
-	for _, addr := range r.addrs {
+	addrs := make([]grpcresolver.Address, 0, len(r.addresses))
+	for _, addr := range r.addresses {
 		addrs = append(addrs, addr)
 	}
 	r.mu.RUnlock()
@@ -278,10 +271,20 @@ func (r *etcdResolver) updateState() {
 			addrList[i] = addr.Addr
 		}
 		r.log.Info("discovered service instances",
-			"count", len(addrs),
-			"instances", addrList,
-		)
+			"count", len(addrs), "instances", addrList)
 	}
 
 	r.cc.UpdateState(grpcresolver.State{Addresses: addrs})
+}
+
+// prefix returns the etcd key prefix for the target service.
+// The prefix is constructed from the target endpoint.
+func (r *etcdResolver) prefix() string {
+	return fmt.Sprintf("/octopus/rpc/apps/%s/", r.target.Endpoint())
+}
+
+// formatAddr formats an instance address as "host:port".
+// It combines the instance's Addr and Port fields.
+func (r *etcdResolver) formatAddr(instance *registry.Instance) string {
+	return fmt.Sprintf("%s:%d", instance.Addr, instance.Port)
 }

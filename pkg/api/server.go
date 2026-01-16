@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -17,116 +15,96 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Engine 是 gin.Engine 的类型别名，便于在其他包中引用而不直接依赖 gin。
+// Engine is a type alias for gin.Engine.
 type Engine = gin.Engine
 
-// Server 封装 Gin HTTP 服务的生命周期。
+// Router is a type alias for gin.IRouter.
+type Router = gin.IRouter
+
+// Server encapsulates the lifecycle of a Gin HTTP server.
 type Server struct {
+	log    *xlog.Logger
 	config *ServerConfig
 
 	engine     *gin.Engine
 	httpServer *http.Server
-	listener   net.Listener
-
-	log *slog.Logger
 }
 
-// NewServer 创建 HTTP API 服务器。
-// 从 context 中获取 logger，如果没有则使用 slog.Default()。
-func NewServer(ctx context.Context, cfg *ServerConfig, opts ...Option) *Server {
-	if cfg == nil {
-		panic("api: server config is nil")
+// MustNewServer creates a new Server and panics if initialization fails.
+func MustNewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) *Server {
+	server, err := NewServer(log, cfg, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return server
+}
+
+// NewServer creates a new Server with the given configuration.
+// Functional options can be used to customize the server behavior.
+func NewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) (*Server, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
-	log := xlog.FromContext(ctx).With("component", "api.server", "appName", cfg.AppName)
-
 	s := &Server{
-		config: cfg,
 		log:    log,
+		config: cfg,
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	// 初始化 Gin Engine
-	if s.engine == nil {
-		mode := cfg.Mode
-		if mode == "" {
-			mode = gin.ReleaseMode
-		}
-		gin.SetMode(mode)
+	gin.SetMode(cfg.Mode)
+	s.engine = gin.New()
+	s.engine.Use(
+		middleware.Recovery(),
+		middleware.Logging(),
+	)
 
-		engine := gin.New()
-		// 使用自定义 Recovery 与 Logging 中间件。
-		engine.Use(
-			middleware.Recovery(),
-			middleware.Logging(),
-		)
-		s.engine = engine
-	}
-
-	// 如果配置了 pprof，则挂载到 /debug/pprof
+	// Mount pprof routes if enabled.
 	if cfg.EnablePProf {
 		s.registerPProf()
 	}
 
-	return s
+	return s, nil
 }
 
-// Engine 返回内部的 gin.Engine，便于注册路由和中间件。
-func (s *Server) Engine() *gin.Engine {
+// Engine returns the underlying gin.Engine for route registration.
+func (s *Server) Engine() *Engine {
 	return s.engine
 }
 
-// Use 向 Engine 添加中间件。
-func (s *Server) Use(middlewares ...gin.HandlerFunc) {
-	s.engine.Use(middlewares...)
-}
-
-// Start 启动 HTTP 服务器并阻塞，直到收到退出信号并完成优雅关闭。
-func (s *Server) Start() error {
-	if s.config.Port <= 0 {
-		return fmt.Errorf("api: invalid port %d", s.config.Port)
-	}
-
-	host := s.config.Host
-	if host == "" {
-		host = "0.0.0.0"
-	}
-	addr := fmt.Sprintf("%s:%d", host, s.config.Port)
-
-	lis, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("api: failed to listen on %s: %w", addr, err)
-	}
-	s.listener = lis
-
-	server := &http.Server{
+// Start starts the HTTP server and blocks until receiving a shutdown signal.
+//
+// The server is started in a goroutine. If ListenAndServe fails with an error
+// other than http.ErrServerClosed (normal shutdown), it will panic.
+// The method blocks until a termination signal (SIGTERM or SIGINT) is received.
+func (s *Server) Start() {
+	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
+	s.httpServer = &http.Server{
 		Addr:         addr,
 		Handler:      s.engine,
 		ReadTimeout:  s.config.ReadTimeout,
 		WriteTimeout: s.config.WriteTimeout,
 		IdleTimeout:  s.config.IdleTimeout,
 	}
-	s.httpServer = server
-
 	s.log.Info("starting api server", "addr", addr)
 
-	// 启动 HTTP Server
 	go func() {
-		if err := server.Serve(lis); err != nil && err != http.ErrServerClosed {
-			s.log.Error("api server stopped", "error", err)
+		err := s.httpServer.ListenAndServe()
+		if err == nil || err == http.ErrServerClosed {
+			s.log.Info("api server closed")
+		} else {
+			s.log.Error("failed to start api server", "error", err)
+			panic(err)
 		}
 	}()
 
-	// 等待退出信号并优雅关闭
 	s.waitForShutdown()
-
-	return nil
 }
 
-// Shutdown 优雅关闭 HTTP 服务器。
+// Shutdown gracefully shuts down the HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpServer == nil {
 		return nil
@@ -134,7 +112,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// registerPProf 将 pprof 路由挂载到 /debug/pprof。
+// registerPProf mounts pprof routes to /debug/pprof.
 func (s *Server) registerPProf() {
 	g := s.engine.Group("/debug/pprof")
 	{
@@ -153,7 +131,7 @@ func (s *Server) registerPProf() {
 	}
 }
 
-// waitForShutdown 等待关闭信号并执行优雅关闭。
+// waitForShutdown waits for a shutdown signal and performs graceful shutdown.
 func (s *Server) waitForShutdown() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)

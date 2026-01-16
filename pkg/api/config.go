@@ -1,6 +1,9 @@
 package api
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // ServerConfig 是 HTTP API 服务器配置。
 //
@@ -17,7 +20,7 @@ import "time"
 //	idleTimeout: 60s
 type ServerConfig struct {
 	// AppName 应用名称，用于日志等标识。
-	AppName string `yaml:"appName" json:"appName" toml:"appName"`
+	Name string `yaml:"name" json:"name" toml:"name"`
 
 	// Host 监听地址（如 0.0.0.0, 127.0.0.1）。
 	Host string `yaml:"host" json:"host" toml:"host"`
@@ -28,9 +31,6 @@ type ServerConfig struct {
 	// Mode Gin 运行模式: debug / release。
 	Mode string `yaml:"mode" json:"mode" toml:"mode"`
 
-	// EnablePProf 是否启用 pprof 路由。
-	EnablePProf bool `yaml:"enablePProf" json:"enablePProf" toml:"enablePProf"`
-
 	// ReadTimeout 读超时时间。
 	ReadTimeout time.Duration `yaml:"readTimeout" json:"readTimeout" toml:"readTimeout"`
 
@@ -39,4 +39,19 @@ type ServerConfig struct {
 
 	// IdleTimeout 空闲连接超时时间。
 	IdleTimeout time.Duration `yaml:"idleTimeout" json:"idleTimeout" toml:"idleTimeout"`
+
+	// EnablePProf 是否启用 pprof 路由。
+	EnablePProf bool `yaml:"enablePProf" json:"enablePProf" toml:"enablePProf"`
+}
+
+func (c *ServerConfig) Validate() error {
+	if c.Name == "" {
+		return errors.New("server name is required")
+	}
+
+	if c.Port <= 0 {
+		return errors.New("server port is required")
+	}
+
+	return nil
 }

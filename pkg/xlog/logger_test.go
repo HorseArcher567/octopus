@@ -58,7 +58,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			log, err := New(tt.config)
+			log, err := New(&tt.config)
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
@@ -157,7 +157,7 @@ func TestJSONFormat(t *testing.T) {
 }
 
 func TestMustNew(t *testing.T) {
-	log := MustNew(Config{
+	log := MustNew(&Config{
 		Level:  "info",
 		Format: "text",
 		Output: "stdout",
@@ -178,7 +178,7 @@ func TestMustNewPanic(t *testing.T) {
 		}
 	}()
 
-	MustNew(Config{
+	MustNew(&Config{
 		Level:  "invalid",
 		Format: "text",
 		Output: "stdout",

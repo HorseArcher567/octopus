@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"google.golang.org/grpc"
 )
@@ -12,7 +10,7 @@ var defaultApp *App
 
 // Init 初始化默认应用实例。
 // 应在 main 函数启动阶段调用一次。
-// cfg 是框架配置，用户应该在外部加载自己的配置（嵌入 app.Framework），然后提取 Framework 部分传入。
+// framework 是框架配置，用户应该在外部加载自己的配置（嵌入 app.Framework），然后提取 Framework 部分传入。
 //
 // 示例：
 //
@@ -24,8 +22,8 @@ var defaultApp *App
 //	var cfg AppConfig
 //	config.MustUnmarshal("config.yaml", &cfg)
 //	app.Init(&cfg.Framework)
-func Init(cfg *Framework) {
-	defaultApp = New(cfg)
+func Init(framework *Framework) {
+	defaultApp = New(framework)
 }
 
 // Default 返回当前默认应用实例。
@@ -47,9 +45,9 @@ func OnShutdown(h ShutdownHook) {
 	Default().OnShutdown(h)
 }
 
-// RegisterRpcService 在默认应用上注册 gRPC 服务。
-func RegisterRpcService(register func(s *grpc.Server)) {
-	Default().RegisterRpcService(register)
+// RegisterRpcServices 在默认应用上注册 gRPC 服务。
+func RegisterRpcServices(register func(s *grpc.Server)) {
+	Default().RegisterRpcServices(register)
 }
 
 // RegisterApiRoutes 在默认应用上注册 HTTP API 路由。
@@ -57,10 +55,10 @@ func RegisterApiRoutes(register func(engine *api.Engine)) {
 	Default().RegisterApiRoutes(register)
 }
 
-// Run 启动默认应用。
-func Run() error {
+// Run 启动默认应用
+func Run() {
 	if defaultApp == nil {
-		return fmt.Errorf("app: defaultApp is not initialized, call app.Init() first")
+		panic("app: defaultApp is not initialized, call app.Init() first")
 	}
-	return defaultApp.Run()
+	defaultApp.Run()
 }

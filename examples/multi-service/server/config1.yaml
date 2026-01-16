@@ -1,0 +1,38 @@
+# Multi-Service Demo 配置文件
+
+# 日志配置
+logger:
+  level: debug          # 日志级别: debug/info/warn/error (默认: info)
+  format: json          # 日志格式: json/text (默认: text)
+  addSource: true      # 是否添加源码位置 (文件名、行号)
+  output: stdout        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
+  maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
+
+# etcd 配置
+etcd:
+  endpoints:            # etcd 节点地址列表
+    - localhost:2379
+    - localhost:2381
+    - localhost:2383
+  dialTimeout: 5s       # 连接超时时间 (默认 5s)
+  autoSyncInterval: 60s # 自动同步集群成员间隔 (默认 60s)
+  # username: ""        # etcd 用户名 (可选)
+  # password: ""        # etcd 密码 (可选)
+  
+
+# RPC 服务器配置
+rpcServer:
+  name: multi-service-demo     # 服务名称(注册到注册中心会用到该名称)
+  host: 0.0.0.0                # 监听地址 
+  port: 9001                   # 监听端口
+  enableReflection: true       # 是否启用 gRPC 反射 (推荐开发/测试环境启用)
+  advertiseAddr: 10.247.19.74  # 注册到 etcd 的地址，如果为空则不注册到 etcd
+
+# HTTP API 服务器配置
+apiServer:
+  name: multi-service-demo     # 服务名称
+  host: 0.0.0.0                # HTTP 监听地址
+  port: 8080                   # HTTP 监听端口
+  mode: release                # Gin 模式: debug/release
+  enablePProf: false           # 是否启用 pprof
+

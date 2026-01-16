@@ -14,7 +14,7 @@ import (
 
 // UnaryInjectLogger 将 logger 注入到请求 context 中
 // 应放在中间件链的最前面
-func UnaryInjectLogger(log *slog.Logger) grpc.UnaryServerInterceptor {
+func UnaryInjectLogger(log *xlog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		ctx = xlog.WithContext(ctx, log)
 		return handler(ctx, req)
@@ -23,7 +23,7 @@ func UnaryInjectLogger(log *slog.Logger) grpc.UnaryServerInterceptor {
 
 // StreamInjectLogger 将 logger 注入到流式请求 context 中
 // 应放在中间件链的最前面
-func StreamInjectLogger(log *slog.Logger) grpc.StreamServerInterceptor {
+func StreamInjectLogger(log *xlog.Logger) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := xlog.WithContext(ss.Context(), log)
 		return handler(srv, &contextServerStream{ServerStream: ss, ctx: ctx})
@@ -46,7 +46,8 @@ func UnaryServerLogging() grpc.UnaryServerInterceptor {
 		start := time.Now()
 
 		// 创建带有请求信息的 logger（继承上游可能已有的字段）
-		log := xlog.FromContext(ctx).With("method", info.FullMethod)
+		logger := xlog.FromContext(ctx)
+		log := logger.With("method", info.FullMethod)
 		if requestID := extractRequestID(ctx); requestID != "" {
 			log = log.With("request_id", requestID)
 		}
@@ -54,7 +55,7 @@ func UnaryServerLogging() grpc.UnaryServerInterceptor {
 		log.Info("grpc request started")
 
 		// 将 logger 注入 context
-		ctx = xlog.WithContext(ctx, log)
+		ctx = xlog.WithContext(ctx, &xlog.Logger{Logger: log})
 
 		resp, err := handler(ctx, req)
 
@@ -83,7 +84,8 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 		start := time.Now()
 		ctx := ss.Context()
 
-		log := xlog.FromContext(ctx).With("method", info.FullMethod)
+		logger := xlog.FromContext(ctx)
+		log := logger.With("method", info.FullMethod)
 		if requestID := extractRequestID(ctx); requestID != "" {
 			log = log.With("request_id", requestID)
 		}
@@ -96,7 +98,7 @@ func StreamServerLogging() grpc.StreamServerInterceptor {
 		// 包装 ServerStream 以注入 logger
 		wrappedStream := &contextServerStream{
 			ServerStream: ss,
-			ctx:          xlog.WithContext(ctx, log),
+			ctx:          xlog.WithContext(ctx, &xlog.Logger{Logger: log}),
 		}
 
 		err := handler(srv, wrappedStream)
@@ -187,7 +189,7 @@ func StreamClientLogging() grpc.StreamClientInterceptor {
 
 		return &loggingClientStream{
 			ClientStream: clientStream,
-			log:          log,
+			log:          log.Logger,
 			method:       method,
 			target:       cc.Target(),
 			start:        start,

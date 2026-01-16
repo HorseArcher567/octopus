@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log/slog"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/api"
@@ -151,7 +150,7 @@ func main() {
 	// dbHost := cfg.Database.Host
 
 	// 注册多个服务
-	app.RegisterRpcService(func(s *grpc.Server) {
+	app.RegisterRpcServices(func(s *grpc.Server) {
 		pb.RegisterUserServer(s, &UserServer{})
 		pb.RegisterOrderServer(s, &OrderServer{})
 		pb.RegisterProductServer(s, &ProductServer{})
@@ -167,7 +166,5 @@ func main() {
 	})
 
 	// 启动应用
-	if err := app.Run(); err != nil {
-		slog.Error("failed to run app", "error", err)
-	}
+	app.Run()
 }

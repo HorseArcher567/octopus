@@ -1,44 +1,44 @@
 package resolver
 
 import (
-	"log/slog"
 	"strings"
 
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	grpcresolver "google.golang.org/grpc/resolver"
 )
 
-// DirectResolverBuilder 实现一个简单的直连 resolver.Builder。
-// 约定 target 形如：direct:///ip1:port1,ip2:port2，由 resolver 从 Target.Endpoint 中解析出多地址。
-// 该 resolver 不做服务发现和动态更新，只在构建时推送一次地址列表。
+// DirectResolverBuilder implements a simple direct connection resolver.Builder.
+// It parses addresses from the target endpoint in the format "ip1:port1,ip2:port2"
+// and provides them to gRPC without service discovery or dynamic updates.
+// The resolver only pushes the address list once during initialization.
 type DirectResolverBuilder struct {
-	log *slog.Logger
+	log *xlog.Logger
 }
 
-// NewDirectBuilder 创建一个直连模式的 resolver builder。
-// log 为用于输出的 logger。
-func NewDirectBuilder(log *slog.Logger) *DirectResolverBuilder {
-	if log == nil {
-		log = slog.Default()
-	}
+// NewDirectBuilder creates a new DirectResolverBuilder.
+// The log parameter is used for logging output.
+func NewDirectBuilder(log *xlog.Logger) *DirectResolverBuilder {
 	return &DirectResolverBuilder{
 		log: log,
 	}
 }
 
-// Scheme 返回直连 resolver 使用的 scheme。
-// 仅在通过 grpc.WithResolvers(builder) 传入时使用，无需全局注册。
+// Scheme returns the resolver scheme used in gRPC target URLs.
+// It should be used with grpc.WithResolvers(builder) and does not require global registration.
 func (b *DirectResolverBuilder) Scheme() string {
-	return "direct"
+	return SchemeDirect
 }
 
-// Build 创建一个新的 resolver 实例，并从 target.Endpoint 中解析 endpoints 推送给 gRPC。
+// Build creates a new resolver instance for the given target.
+// It parses comma-separated addresses from target.Endpoint and updates
+// the gRPC client connection with the resolved addresses.
 func (b *DirectResolverBuilder) Build(target grpcresolver.Target, cc grpcresolver.ClientConn, opts grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
 	r := &directResolver{
-		cc:  cc,
-		log: b.log.With("component", "resolver", "scheme", "direct"),
+		cc: cc,
 	}
 
-	raw := target.Endpoint() // 形如 "ip1:port1,ip2:port2"
+	// Parse comma-separated addresses from endpoint (e.g., "ip1:port1,ip2:port2")
+	raw := target.Endpoint()
 	parts := strings.Split(raw, ",")
 
 	addrs := make([]grpcresolver.Address, 0, len(parts))
@@ -51,11 +51,11 @@ func (b *DirectResolverBuilder) Build(target grpcresolver.Target, cc grpcresolve
 	}
 
 	if len(addrs) == 0 {
-		r.log.Warn("direct resolver initialized with empty endpoints",
+		b.log.Warn("direct resolver initialized with empty endpoints",
 			"raw_endpoint", raw,
 		)
 	} else {
-		r.log.Info("direct resolver initialized",
+		b.log.Info("direct resolver initialized",
 			"endpoints", raw,
 		)
 	}
@@ -64,19 +64,22 @@ func (b *DirectResolverBuilder) Build(target grpcresolver.Target, cc grpcresolve
 	return r, nil
 }
 
-// directResolver 实现 grpcresolver.Resolver 接口。
-// 由于直连模式的地址是固定的，这里不做额外的解析或监听。
+// directResolver implements the gRPC resolver.Resolver interface
+// for direct connection without service discovery.
+// Since addresses are fixed in direct mode, no additional resolution
+// or monitoring is performed.
 type directResolver struct {
-	cc  grpcresolver.ClientConn
-	log *slog.Logger
+	cc grpcresolver.ClientConn
 }
 
-// ResolveNow 对于固定地址的直连 resolver，无需实现额外逻辑。
+// ResolveNow triggers an immediate resolution of the target.
+// For direct resolver with fixed addresses, no additional logic is needed.
 func (r *directResolver) ResolveNow(opts grpcresolver.ResolveNowOptions) {
 	// no-op
 }
 
-// Close 关闭 resolver，这里也无需额外清理。
+// Close closes the resolver and releases associated resources.
+// For direct resolver, no additional cleanup is needed.
 func (r *directResolver) Close() {
 	// no-op
 }

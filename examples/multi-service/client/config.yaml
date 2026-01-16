@@ -1,4 +1,11 @@
 # Multi-Service Demo 客户端配置文件
+# 日志配置
+logger:
+  level: debug          # 日志级别: debug/info/warn/error (默认: info)
+  format: json          # 日志格式: json/text (默认: text)
+  addSource: true      # 是否添加源码位置 (文件名、行号)
+  output: stdout        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
+  maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
 
 # etcd 配置
 etcd:
@@ -8,6 +15,7 @@ etcd:
     - localhost:2383
   dialTimeout: 5s       # 连接超时时间 (默认 5s)
   autoSyncInterval: 60s # 自动同步集群成员间隔 (默认 60s)
+  leaseTTL: 60          # 租约时间 (秒，默认 60)
   # username: ""       # etcd 用户名 (可选)
   # password: ""       # etcd 密码 (可选)
 
@@ -18,9 +26,8 @@ etcd:
 # 方式1：etcd 服务发现模式（生产环境推荐）
 # ============================================================================
 client:
-  # 目标应用名称（在服务发现系统中注册的名称）
-  appName: multi-service-demo
-  
+  # 目标服务地址
+  target: etcd:///multi-service-demo
   # Keepalive 配置
   enableKeepalive: true
   keepaliveTime: 10s

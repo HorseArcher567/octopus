@@ -7,10 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/HorseArcher567/octopus/pkg/rotate"
+	"github.com/HorseArcher567/octopus/pkg/xlog/rotate"
 )
-
-
 
 // Logger 封装了 slog.Logger 和资源清理逻辑
 // 通过嵌入 *slog.Logger，可以直接调用所有 slog 的方法
@@ -26,10 +24,22 @@ func (l *Logger) Close() error {
 	return l.closer.Close()
 }
 
+// MustNew 根据配置创建一个新的 Logger（失败时 panic）
+func MustNew(cfg *Config) *Logger {
+	logger, err := New(cfg)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create logger: %v", err))
+	}
+	return logger
+}
+
 // New 根据配置创建一个新的 Logger
 // 返回的 Logger 实现了 io.Closer，使用完毕后应调用 Close() 关闭资源
-func New(cfg Config) (*Logger, error) {
-	cfg = normalize(cfg)
+func New(cfg *Config) (*Logger, error) {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	normalize(cfg)
 
 	writer, closer, err := resolveWriter(cfg)
 	if err != nil {
@@ -62,16 +72,7 @@ func New(cfg Config) (*Logger, error) {
 	}, nil
 }
 
-// MustNew 根据配置创建一个新的 Logger（失败时 panic）
-func MustNew(cfg Config) *Logger {
-	logger, err := New(cfg)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create logger: %v", err))
-	}
-	return logger
-}
-
-func normalize(cfg Config) Config {
+func normalize(cfg *Config) {
 	if cfg.Level == "" {
 		cfg.Level = "info"
 	}
@@ -81,10 +82,9 @@ func normalize(cfg Config) Config {
 	if cfg.Output == "" {
 		cfg.Output = "stdout"
 	}
-	return cfg
 }
 
-func resolveWriter(cfg Config) (io.Writer, io.Closer, error) {
+func resolveWriter(cfg *Config) (io.Writer, io.Closer, error) {
 	switch strings.ToLower(cfg.Output) {
 	case "stdout":
 		return os.Stdout, nil, nil

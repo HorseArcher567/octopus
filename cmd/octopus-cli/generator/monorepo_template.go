@@ -305,7 +305,7 @@ func main() {
 
 	// 4. Create RPC Server
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.NewServer(ctx, &cfg.Server)
+	rpcServer := rpc.MustNewServer(&cfg.Server)
 
 	// 5. Register service
 	rpcServer.RegisterService(func(s *grpc.Server) {

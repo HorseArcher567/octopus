@@ -26,7 +26,7 @@ import (
 //	    app.Init(&cfg.Framework)  // 只传入框架配置部分
 //	}
 type Framework struct {
-	LoggerCfg *xlog.Config      `yaml:"logger" json:"logger" toml:"logger"`
+	LoggerCfg xlog.Config       `yaml:"logger" json:"logger" toml:"logger"`
 	EtcdCfg   *etcd.Config      `yaml:"etcd" json:"etcd" toml:"etcd"`
 	RpcSvrCfg *rpc.ServerConfig `yaml:"rpcServer" json:"rpcServer" toml:"rpcServer"`
 	ApiSvrCfg *api.ServerConfig `yaml:"apiServer" json:"apiServer" toml:"apiServer"`

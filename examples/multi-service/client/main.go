@@ -11,40 +11,11 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/resolver"
-	"google.golang.org/grpc/resolver/manual"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
 func main() {
 	ctx := context.Background()
-
-	{
-		// 1. 创建 manual resolver
-		r := manual.NewBuilderWithScheme("myservice")
-
-		// 2. 使用 NewClient 替代 Dial
-		conn, err := grpc.NewClient(
-			"myservice:///backend", // target
-			grpc.WithResolvers(r),  // 注入 resolver
-			grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			log.Fatalf("创建客户端失败: %v", err)
-		}
-		defer conn.Close()
-
-		// 3. 初始化或更新地址列表
-		r.UpdateState(resolver.State{
-			Addresses: []resolver.Address{
-				{Addr: "127.0.0.1:50051"},
-				{Addr: "127.0.0.1:50052"},
-				{Addr: "127.0.0.1:50053"},
-			},
-		})
-	}
 
 	// 方式1：从配置文件加载（推荐）
 	// 加载配置文件
@@ -53,39 +24,32 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	var logConfig xlog.Config
+	if err := cfg.UnmarshalKey("logger", &logConfig); err != nil {
+		log.Fatalf("Failed to load log config: %v", err)
+	}
+	log := xlog.MustNew(&logConfig)
+
 	// 从配置文件中加载 etcd 配置
 	var etcdCfg etcd.Config
 	if err := cfg.UnmarshalKey("etcd", &etcdCfg); err != nil {
-		log.Fatalf("Failed to load etcd config: %v", err)
+		log.Error("Failed to load etcd config", "error", err)
+	}
+	rpc.RegisterResolver(log, &etcdCfg)
+
+	var clientConfig rpc.ClientConfig
+	if err := cfg.UnmarshalKey("client", &clientConfig); err != nil {
+		log.Error("Failed to load client config", "error", err)
+		panic(err)
 	}
 
 	// 从配置文件中创建客户端
-	conn, err := rpc.NewClientFromConfig(ctx, &etcdCfg, cfg, "client")
+	conn, err := rpc.NewClient(log, &clientConfig)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Error("Failed to create client", "error", err)
+		panic(err)
 	}
 	defer conn.Close()
-
-	// 方式2：直接使用代码配置（备选）
-	// etcdCfg := &etcd.Config{
-	// 	Endpoints: []string{"localhost:2379"},
-	// }
-	// conn, err := rpc.NewClient(ctx, etcdCfg, &rpc.ClientConfig{
-	// 	AppName: "multi-service-demo",
-	// })
-	// if err != nil {
-	// 	log.Fatalf("Failed to connect: %v", err)
-	// }
-	// defer conn.Close()
-
-	// 方式3：直连模式（用于开发测试）
-	// conn, err := rpc.NewClient(ctx, &rpc.ClientConfig{
-	// 	Endpoints: []string{"localhost:9000", "localhost:9001"},
-	// })
-	// if err != nil {
-	// 	log.Fatalf("Failed to connect: %v", err)
-	// }
-	// defer conn.Close()
 
 	// 创建不同的 gRPC 服务客户端（共享同一个连接）
 	userClient := pb.NewUserClient(conn)
@@ -96,19 +60,19 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	log.Println("=== Testing UserService ===")
+	log.Info("=== Testing UserService ===")
 	testUserService(ctx, userClient)
 
-	log.Println("\n=== Testing OrderService ===")
+	log.Info("\n=== Testing OrderService ===")
 	testOrderService(ctx, orderClient)
 
-	log.Println("\n=== Testing ProductService ===")
+	log.Info("\n=== Testing ProductService ===")
 	testProductService(ctx, productClient)
 
-	log.Println("\n=== Testing ApiServer (HTTP) ===")
+	log.Info("\n=== Testing ApiServer (HTTP) ===")
 	testApiServer()
 
-	log.Println("\n✅ All tests completed successfully!")
+	log.Info("\n✅ All tests completed successfully!")
 }
 
 func testUserService(ctx context.Context, client pb.UserClient) {

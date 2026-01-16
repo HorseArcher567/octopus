@@ -1,32 +1,34 @@
 package etcd
 
 import (
+	"errors"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// Config etcd 连接配置
+// Config is the configuration for etcd client connection.
 type Config struct {
-	// Endpoints etcd 节点地址列表
+	// Endpoints is the list of etcd node addresses.
 	Endpoints []string `yaml:"endpoints" json:"endpoints" toml:"endpoints"`
 
-	// DialTimeout 连接超时时间（默认 5s）
+	// DialTimeout is the connection timeout (default: 5s).
 	DialTimeout time.Duration `yaml:"dialTimeout" json:"dialTimeout" toml:"dialTimeout"`
 
-	// AutoSyncInterval 自动同步集群成员间隔（默认 60s）
-	AutoSyncInterval time.Duration `yaml:"autoSyncInterval" json:"autoSyncInterval" toml:"autoSyncInterval"`
-
-	// Username etcd 用户名（可选）
+	// Username is the etcd username (optional).
 	Username string `yaml:"username" json:"username" toml:"username"`
 
-	// Password etcd 密码（可选）
+	// Password is the etcd password (optional).
 	Password string `yaml:"password" json:"password" toml:"password"`
 }
 
-// ClientV3Config 生成用于创建 etcd 客户端的 clientv3.Config
-func (c *Config) ClientV3Config() clientv3.Config {
-	cfg := clientv3.Config{
+// ClientV3Config returns a clientv3.Config for creating an etcd client.
+func (c *Config) ClientV3Config() (*clientv3.Config, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+
+	cfg := &clientv3.Config{
 		Endpoints: c.Endpoints,
 	}
 
@@ -36,21 +38,19 @@ func (c *Config) ClientV3Config() clientv3.Config {
 		cfg.DialTimeout = 5 * time.Second
 	}
 
-	if c.AutoSyncInterval > 0 {
-		cfg.AutoSyncInterval = c.AutoSyncInterval
-	} else {
-		cfg.AutoSyncInterval = 60 * time.Second
-	}
-
 	if c.Username != "" {
 		cfg.Username = c.Username
 		cfg.Password = c.Password
 	}
 
-	return cfg
+	return cfg, nil
 }
 
-// IsEmpty 检查配置是否为空（未配置 endpoints）
-func (c *Config) IsEmpty() bool {
-	return c == nil || len(c.Endpoints) == 0
+// Validate validates the configuration.
+func (c *Config) Validate() error {
+	if len(c.Endpoints) == 0 {
+		return errors.New("endpoints not configured")
+	}
+
+	return nil
 }

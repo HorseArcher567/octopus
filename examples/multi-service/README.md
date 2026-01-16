@@ -153,23 +153,25 @@ grpcurl -plaintext -d '{"service": "ProductService"}' \
 
 ```go
 // 创建 RPC 服务器
-server := rpc.NewServer(ctx, config)
+server := rpc.MustNewServer(config)
 
 // 注册多个服务
 server.RegisterService(func(s *grpc.Server) {
     pb.RegisterUserServiceServer(s, userService)
-}, "UserService")
+})
 
 server.RegisterService(func(s *grpc.Server) {
     pb.RegisterOrderServiceServer(s, orderService)
-}, "OrderService")
+})
 
 server.RegisterService(func(s *grpc.Server) {
     pb.RegisterProductServiceServer(s, productService)
-}, "ProductService")
+})
 
 // 启动服务器
-server.Start()
+if err := server.Start(); err != nil {
+    // handle error
+}
 ```
 
 ### 客户端连接使用

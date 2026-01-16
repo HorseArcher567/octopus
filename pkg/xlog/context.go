@@ -7,20 +7,21 @@ import (
 
 type loggerKey struct{}
 
-// FromContext 从 context 获取 *slog.Logger，如果没有则返回 slog.Default()
-func FromContext(ctx context.Context) *slog.Logger {
-	if l, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
+// FromContext returns the *Logger from context, or a Logger wrapping slog.Default() if not found.
+func FromContext(ctx context.Context) *Logger {
+	if l, ok := ctx.Value(loggerKey{}).(*Logger); ok {
 		return l
 	}
-	return slog.Default()
+	return &Logger{Logger: slog.Default()}
 }
 
-// WithContext 将 *slog.Logger 存入 context
-func WithContext(ctx context.Context, l *slog.Logger) context.Context {
+// WithContext stores the *Logger in context.
+func WithContext(ctx context.Context, l *Logger) context.Context {
 	return context.WithValue(ctx, loggerKey{}, l)
 }
 
-// WithAttrs 为 context 中的 logger 添加属性，返回新的 context
+// WithAttrs adds attributes to the logger in context and returns a new context.
 func WithAttrs(ctx context.Context, args ...any) context.Context {
-	return WithContext(ctx, FromContext(ctx).With(args...))
+	logger := FromContext(ctx)
+	return WithContext(ctx, &Logger{Logger: logger.With(args...)})
 }

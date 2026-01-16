@@ -1,4 +1,4 @@
-## `pkg/app` 使用说明
+# pkg/app 使用说明
 
 `app` 包为基于 gRPC 的服务提供统一的初始化与运行模式，封装了：
 
@@ -11,7 +11,7 @@
 
 ---
 
-### 核心概念
+## 核心概念
 
 - `type Framework struct { LoggerCfg, EtcdCfg, RpcSvrCfg, ApiSvrCfg }`
 - `type App struct { ... }`：聚合配置、日志、RPC server、根 `context.Context` 与 Hook。
@@ -76,7 +76,7 @@ func main() {
 
 ---
 
-### 多实例 / 高级用法
+## 多实例 / 高级用法
 
 如果需要在一个进程中管理多个 App，或在测试中手动控制实例，可以使用 `New`：
 
@@ -102,7 +102,7 @@ func main() {
 
 ---
 
-### Option 一览
+## Option 一览
 
 ```go
 type Option func(a *App)
@@ -119,7 +119,7 @@ type Option func(a *App)
 
 ---
 
-### 与现有示例的结合
+## 与现有示例的结合
 
 `examples/multi-service/server/main.go` 已经演示了使用默认实例的模式：
 
@@ -133,5 +133,3 @@ type Option func(a *App)
   - 调用 `app.Run()` 启动服务
 
 这样可以将各类应用的启动过程约束在统一的固定模式下，减少重复和出错点。 
-
-

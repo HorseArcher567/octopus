@@ -1,291 +1,189 @@
+// Package registry provides service registration functionality for etcd.
+// It handles service instance registration, lease management, and keepalive.
 package registry
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"sync"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// Registry 服务注册器
+// leaseTTL is the default lease time-to-live in seconds.
+const leaseTTL = 60
+
+// timeout is the default timeout for etcd operations.
+const timeout = 3 * time.Second
+
+// Registry handles service instance registration and keepalive with etcd.
 type Registry struct {
-	client   *clientv3.Client
-	config   *Config
-	instance *ServiceInstance
-	log      *slog.Logger
+	// log is the logger for logging operations.
+	log *xlog.Logger
+	// etcdClient is the etcd client for registration operations.
+	etcdClient *clientv3.Client
+	// instance is the service instance to register.
+	instance *Instance
 
-	leaseID clientv3.LeaseID
-	ttl     int64
-	key     string
+	// ctx is the context for cancellation.
+	ctx context.Context
+	// cancel is the cancel function to stop operations.
+	cancel context.CancelFunc
 
-	// 用于控制keepAlive goroutine
-	keepAliveCancel context.CancelFunc
-	closeChan       chan struct{}
-	wg              sync.WaitGroup
-
-	mu         sync.RWMutex
-	registered bool
+	// done is closed when the register goroutine has stopped.
+	done chan struct{}
 }
 
-// NewRegistry 创建注册器
-// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
-// 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewRegistry(ctx context.Context, etcdConfig *etcd.Config, cfg *Config, instance *ServiceInstance) (*Registry, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+// NewRegistry creates a new Registry instance.
+// The instance must be valid (pass Validate()).
+func NewRegistry(log *xlog.Logger, etcdClient *clientv3.Client, instance *Instance) (*Registry, error) {
+	if err := instance.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid service instance: %w", err)
 	}
 
-	if instance == nil {
-		return nil, fmt.Errorf("instance cannot be nil")
-	}
-
-	// 使用 etcd.NewClient 创建 client
-	client, err := etcd.NewClient(etcdConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create etcd client: %w", err)
-	}
-
-	// 从 context 获取 logger 并添加组件信息
-	log := xlog.FromContext(ctx).With("component", "registry", "app_name", cfg.AppName)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Registry{
-		client:    client,
-		config:    cfg,
-		instance:  instance,
-		log:       log,
-		key:       fmt.Sprintf("/octopus/applications/%s/%s:%d", cfg.AppName, instance.Addr, instance.Port),
-		closeChan: make(chan struct{}),
+		log:        log,
+		instance:   instance,
+		etcdClient: etcdClient,
+		ctx:        ctx,
+		cancel:     cancel,
+		done:       make(chan struct{}),
 	}, nil
 }
 
-// Register 注册服务
-func (r *Registry) Register(ctx context.Context) error {
-	r.mu.Lock()
-	if r.registered {
-		r.mu.Unlock()
-		return ErrAlreadyRegistered
-	}
-	r.mu.Unlock()
-
-	r.ttl = r.config.TTL
-
-	// 1. 创建租约
-	grantResp, err := r.client.Grant(ctx, r.ttl)
-	if err != nil {
-		return fmt.Errorf("failed to grant lease: %w", err)
-	}
-	r.leaseID = grantResp.ID
-
-	// 2. 注册服务信息（绑定租约）
-	data, err := json.Marshal(r.instance)
-	if err != nil {
-		return fmt.Errorf("failed to marshal instance: %w", err)
-	}
-
-	_, err = r.client.Put(ctx, r.key, string(data), clientv3.WithLease(r.leaseID))
-	if err != nil {
-		return fmt.Errorf("failed to put service: %w", err)
-	}
-
-	// 3. 启动心跳保活
-	keepAliveCtx, cancel := context.WithCancel(context.Background())
-	r.keepAliveCancel = cancel
-
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		r.keepAlive(keepAliveCtx)
-	}()
-
-	r.mu.Lock()
-	r.registered = true
-	r.mu.Unlock()
-
-	r.log.Info("application registered",
-		"key", r.key,
-		"lease_id", r.leaseID,
-		"ttl", r.ttl,
-		"instance", fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
-	)
-	return nil
+// Register registers the service instance with etcd and starts keepalive.
+// It creates a lease, stores the instance information, and starts a background
+// goroutine to maintain the lease.
+//
+// Register returns immediately after starting the registration goroutine.
+func (r *Registry) Register() {
+	// Start keepalive goroutine.
+	go r.register()
 }
 
-// keepAlive 保持心跳（带自动重注册）
-func (r *Registry) keepAlive(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+// Unregister unregisters the service instance and stops keepalive.
+// It waits for the keepalive goroutine to stop (with timeout) and revokes the lease.
+// Unregister does not wait for the operation to complete if it times out.
+func (r *Registry) Unregister() {
+	r.log.Info("start unregistering service")
+	if r.cancel != nil {
+		r.cancel()
+	}
+
+	select {
+	case <-r.done:
+		return
+	case <-time.After(timeout):
+		r.log.Error("failed to unregister service", "error", "timeout")
+	}
+}
+
+// register creates a lease and registers the service instance to etcd.
+// If registration fails, it cleans up the created lease.
+// It retries with exponential backoff until the context is canceled.
+func (r *Registry) register() {
+	defer close(r.done)
+
+	backoff := time.Second
+	maxBackoff := timeout
 
 	for {
-		kaChannel, err := r.client.KeepAlive(ctx, r.leaseID)
-		if err != nil {
-			r.log.Error("failed to start keep alive",
-				"error", err,
-				"lease_id", r.leaseID,
-			)
-			time.Sleep(5 * time.Second)
-			continue
+		leaseID, err := r.grantLease()
+		if err == nil {
+			if err = r.putInstance(leaseID); err == nil {
+				// Keepalive blocks until it fails or context is canceled.
+				r.keepalive(leaseID)
+				backoff = time.Second
+			}
+			// Always revoke lease after keepalive or failed registration.
+			r.revokeLease(leaseID)
 		}
 
-		lastRenew := time.Now()
-		shouldReregister := false
-
-		for {
-			select {
-			case resp := <-kaChannel:
-				if resp == nil {
-					r.log.Warn("keepalive channel closed, attempting to re-register",
-						"lease_id", r.leaseID,
-					)
-					shouldReregister = true
-					break
-				}
-				lastRenew = time.Now()
-
-			case <-ticker.C:
-				r.log.Debug("lease active",
-					"lease_id", r.leaseID,
-					"last_renewed", time.Since(lastRenew),
-				)
-
-			case <-ctx.Done():
-				r.log.Info("keepalive stopped by context cancellation")
-				return
-
-			case <-r.closeChan:
-				r.log.Info("keepalive stopped by close signal")
-				return
+		select {
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
 			}
-
-			if shouldReregister {
-				break
-			}
-		}
-
-		if shouldReregister && ctx.Err() == nil {
-			if err := r.reRegister(ctx); err != nil {
-				r.log.Error("failed to re-register, retrying",
-					"error", err,
-					"retry_delay", "5s",
-				)
-				time.Sleep(5 * time.Second)
-			} else {
-				r.log.Info("successfully re-registered",
-					"lease_id", r.leaseID,
-				)
-			}
-		} else {
+		case <-r.ctx.Done():
 			return
 		}
 	}
 }
 
-// reRegister 重新注册服务
-func (r *Registry) reRegister(ctx context.Context) error {
-	// 1. 创建新租约（使用原始TTL）
-	grantResp, err := r.client.Grant(ctx, r.ttl)
-	if err != nil {
-		return fmt.Errorf("failed to grant lease: %w", err)
-	}
-	r.leaseID = grantResp.ID
+// grantLease grants a new lease from etcd with the default TTL.
+// It returns the lease ID on success, or an error if the grant fails.
+func (r *Registry) grantLease() (clientv3.LeaseID, error) {
+	ctx, cancel := context.WithTimeout(r.ctx, timeout)
+	defer cancel()
 
-	// 2. 重新注册服务信息
+	if resp, err := r.etcdClient.Grant(ctx, leaseTTL); err != nil {
+		r.log.Error("failed to grant lease", "error", err)
+		return 0, err
+	} else {
+		return resp.ID, nil
+	}
+}
+
+// putInstance stores the service instance to etcd with the given lease ID.
+// It serializes the instance information and stores it at the instance's key.
+func (r *Registry) putInstance(leaseID clientv3.LeaseID) error {
 	data, err := json.Marshal(r.instance)
 	if err != nil {
-		return fmt.Errorf("failed to marshal instance: %w", err)
+		r.log.Error("failed to marshal instance", "instance", r.instance, "error", err)
+		return err
 	}
 
-	_, err = r.client.Put(ctx, r.key, string(data), clientv3.WithLease(r.leaseID))
+	ctx, cancel := context.WithTimeout(r.ctx, timeout)
+	defer cancel()
+
+	_, err = r.etcdClient.Put(ctx, r.instance.Key(), string(data), clientv3.WithLease(leaseID))
 	if err != nil {
-		return fmt.Errorf("failed to put service: %w", err)
+		r.log.Error("failed to put service", "error", err)
+		return err
 	}
 
 	return nil
 }
 
-// Unregister 注销服务
-func (r *Registry) Unregister(ctx context.Context) error {
-	r.mu.Lock()
-	if !r.registered {
-		r.mu.Unlock()
-		return ErrNotRegistered
-	}
-	r.mu.Unlock()
-
-	// 1. 发送停止信号
-	if r.keepAliveCancel != nil {
-		r.keepAliveCancel()
-	}
-	close(r.closeChan)
-
-	// 2. 等待keepAlive goroutine退出（带超时）
-	done := make(chan struct{})
-	go func() {
-		r.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		r.log.Info("keepalive goroutine exited cleanly")
-	case <-time.After(5 * time.Second):
-		r.log.Warn("keepalive goroutine did not exit in time", "timeout", "5s")
+// keepalive maintains the lease by sending keepalive requests to etcd.
+// It blocks until the keepalive channel is closed, an error occurs, or the context is canceled.
+// The leaseID is passed as a parameter to avoid frequent locking to read r.leaseID.
+func (r *Registry) keepalive(leaseID clientv3.LeaseID) {
+	kaChannel, err := r.etcdClient.KeepAlive(r.ctx, leaseID)
+	if err != nil {
+		r.log.Error("failed to start keepalive", "error", err)
+		return
 	}
 
-	// 3. 撤销租约，自动删除所有关联键值对
-	if r.leaseID != 0 {
-		revokeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		_, err := r.client.Revoke(revokeCtx, r.leaseID)
-		if err != nil {
-			r.log.Error("failed to revoke lease",
-				"error", err,
-				"lease_id", r.leaseID,
-			)
+	for {
+		select {
+		case resp, ok := <-kaChannel:
+			if !ok {
+				r.log.Info("keepalive channel closed")
+				return
+			} else if resp == nil {
+				r.log.Error("keepalive response is nil")
+				return
+			}
+		case <-r.ctx.Done():
+			r.log.Info("keepalive stopped", "error", r.ctx.Err())
+			return
 		}
 	}
-
-	r.mu.Lock()
-	r.registered = false
-	r.mu.Unlock()
-
-	r.log.Info("service unregistered", "key", r.key)
-	return nil
 }
 
-// Close 关闭Registry并释放资源
-func (r *Registry) Close() error {
-	if r.client != nil {
-		return r.client.Close()
-	}
-	return nil
-}
+// revokeLease revokes the specified lease.
+func (r *Registry) revokeLease(leaseID clientv3.LeaseID) {
+	revokeCtx, cancel := context.WithTimeout(r.ctx, timeout)
+	defer cancel()
 
-// IsHealthy 检查服务是否健康
-func (r *Registry) IsHealthy() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.registered && r.leaseID != 0 && r.client != nil
-}
-
-// GetStatus 获取状态详情
-func (r *Registry) GetStatus() map[string]interface{} {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	return map[string]interface{}{
-		"registered": r.registered,
-		"lease_id":   r.leaseID,
-		"ttl":        r.ttl,
-		"key":        r.key,
-		"app_name":   r.config.AppName,
-		"instance":   fmt.Sprintf("%s:%d", r.instance.Addr, r.instance.Port),
-		"healthy":    r.IsHealthy(),
+	_, err := r.etcdClient.Revoke(revokeCtx, leaseID)
+	if err != nil {
+		r.log.Error("failed to revoke lease", "error", err)
 	}
 }

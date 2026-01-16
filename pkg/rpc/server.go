@@ -1,127 +1,128 @@
 package rpc
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-// Server RPC 服务器封装
+// Server wraps a gRPC server with service configuration, logging, and registry support.
 type Server struct {
-	config     *ServerConfig
-	etcdConfig *etcd.Config
-	grpcServer *grpc.Server
+	log    *xlog.Logger
+	config *ServerConfig
+
+	grpcServer  *grpc.Server
+	grpcOptions []grpc.ServerOption
+
 	registry   *registry.Registry
-	listener   net.Listener
-	log        *slog.Logger
+	etcdClient *clientv3.Client
 }
 
-// NewServer 创建 RPC 服务器
-// etcdConfig 是 etcd 配置，如果为 nil 则使用默认配置
-// 从 context 中获取 logger，如果没有则使用 slog.Default()
-func NewServer(ctx context.Context, config *ServerConfig, etcdConfig *etcd.Config, opts ...grpc.ServerOption) *Server {
-	log := xlog.FromContext(ctx).With("component", "rpc.server", "appName", config.AppName)
-	return &Server{
-		config:     config,
-		etcdConfig: etcdConfig,
-		grpcServer: grpc.NewServer(opts...),
-		log:        log,
+// MustNewServer creates a new Server and panics if initialization fails.
+func MustNewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) *Server {
+	server, err := NewServer(log, config, opts...)
+	if err != nil {
+		panic(err)
 	}
+	return server
 }
 
-// RegisterService 注册 gRPC 服务（支持多次调用以注册多个服务）
-func (s *Server) RegisterService(registerFunc func(*grpc.Server)) {
+// NewServer creates a new RPC Server.
+// Functional options can be used to configure the logger, etcd integration, and
+// underlying grpc.Server behavior.
+func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+
+	s := &Server{
+		log:    log,
+		config: config,
+	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	s.grpcServer = grpc.NewServer(s.grpcOptions...)
+	return s, nil
+}
+
+// RegisterServices registers one or more gRPC services on the underlying grpc.Server.
+// It can be called multiple times to register different services.
+func (s *Server) RegisterServices(registerFunc func(*grpc.Server)) {
 	registerFunc(s.grpcServer)
 }
 
-// Start 启动服务器
-func (s *Server) Start() error {
-	// 1. 启用反射（如果配置了）
+// Start starts the gRPC server and blocks until a shutdown signal is received
+// and the server has been gracefully stopped.
+func (s *Server) Start() {
+	// Enable reflection if configured.
 	if s.config.EnableReflection {
 		reflection.Register(s.grpcServer)
 		s.log.Info("grpc reflection enabled")
 	}
 
-	// 2. 创建监听器
+	// Create listener.
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("failed to listen: %w", err)
-	}
-	s.listener = lis
-
-	// 3. 注册服务到 etcd（如果配置了）
-	cfg := s.etcdConfig
-	if cfg == nil {
-		cfg = etcd.Default()
-	}
-	if !cfg.IsEmpty() {
-		if err := s.registerToEtcd(cfg); err != nil {
-			return fmt.Errorf("failed to register service: %w", err)
-		}
+		s.log.Error("failed to listen", "error", err)
+		panic(err)
 	}
 
-	// 4. 启动 gRPC 服务器
+	// Start gRPC server.
 	s.log.Info("starting rpc server", "addr", addr)
 	go func() {
 		if err := s.grpcServer.Serve(lis); err != nil {
 			s.log.Error("server stopped", "error", err)
+			panic(err)
 		}
 	}()
 
-	// 5. 等待退出信号
-	s.waitForShutdown()
+	// Register service instance to etcd, if configured.
+	if s.config.ShouldRegisterInstance() {
+		if err := s.registerInstance(); err != nil {
+			s.log.Error("failed to register service", "error", err)
+			panic(err)
+		}
+	}
 
-	return nil
+	// Wait for shutdown signal.
+	s.waitForShutdown()
 }
 
-// registerToEtcd 注册服务到 etcd
-func (s *Server) registerToEtcd(etcdConfig *etcd.Config) error {
-	// 确定注册地址
-	advertiseAddr := s.config.AdvertiseAddr
-
-	instance := &registry.ServiceInstance{
-		Addr: advertiseAddr,
+// registerInstance registers the service instance to the service registry (etcd) using the provided configuration.
+func (s *Server) registerInstance() error {
+	instance := &registry.Instance{
+		Name: s.config.Name,
+		Addr: s.config.AdvertiseAddr,
 		Port: s.config.Port,
 	}
 
-	regCfg := registry.DefaultConfig()
-	regCfg.AppName = s.config.AppName
-	if s.config.TTL > 0 {
-		regCfg.TTL = s.config.TTL
-	}
-
-	// 创建带 logger 的 context
-	ctx := xlog.WithContext(context.Background(), s.log)
-	reg, err := registry.NewRegistry(ctx, etcdConfig, regCfg, instance)
+	// Create a context that carries the logger.
+	reg, err := registry.NewRegistry(s.log, s.etcdClient, instance)
 	if err != nil {
 		return err
 	}
 
-	if err := reg.Register(context.Background()); err != nil {
-		return err
-	}
-
+	reg.Register()
 	s.registry = reg
-	s.log.Info("application registered to etcd",
-		"advertiseAddr", advertiseAddr,
-		"port", s.config.Port,
-	)
+	s.log.Info("instance registered to etcd", "instance", instance)
+
 	return nil
 }
 
-// waitForShutdown 等待关闭信号
+// waitForShutdown blocks until a termination signal is received and then
+// performs a graceful shutdown sequence.
 func (s *Server) waitForShutdown() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -129,27 +130,16 @@ func (s *Server) waitForShutdown() {
 
 	s.log.Info("shutting down gracefully")
 
-	// 1. 注销服务
-	if s.registry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.registry.Unregister(ctx); err != nil {
-			s.log.Error("failed to unregister", "error", err)
-		}
-	}
-
-	// 2. 停止接受新请求
-	s.grpcServer.GracefulStop()
+	s.Stop()
 
 	s.log.Info("shutdown complete")
 }
 
-// Stop 停止服务器
+// Stop gracefully stops the server and unregisters it from the registry if present.
 func (s *Server) Stop() {
 	if s.registry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		s.registry.Unregister(ctx)
+		s.registry.Unregister()
 	}
+
 	s.grpcServer.GracefulStop()
 }
