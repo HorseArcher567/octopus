@@ -45,6 +45,7 @@ func (b *EtcdResolverBuilder) Scheme() string {
 // Build returns the resolver and nil error on success.
 func (b *EtcdResolverBuilder) Build(target grpcresolver.Target, cc grpcresolver.ClientConn,
 	opts grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
+	b.log.Info("building etcd resolver", "target", target)
 	r := &etcdResolver{
 		log:        b.log,
 		etcdClient: b.etcdClient,

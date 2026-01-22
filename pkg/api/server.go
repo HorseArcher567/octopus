@@ -5,10 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api/middleware"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -31,8 +27,8 @@ type Server struct {
 }
 
 // MustNewServer creates a new Server and panics if initialization fails.
-func MustNewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) *Server {
-	server, err := NewServer(log, cfg, opts...)
+func MustNewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) *Server {
+	server, err := NewServer(log, config, opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -41,21 +37,21 @@ func MustNewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) *Server 
 
 // NewServer creates a new Server with the given configuration.
 // Functional options can be used to customize the server behavior.
-func NewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) (*Server, error) {
-	if err := cfg.Validate(); err != nil {
+func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server, error) {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
 	s := &Server{
 		log:    log,
-		config: cfg,
+		config: config,
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	gin.SetMode(cfg.Mode)
+	gin.SetMode(config.Mode)
 	s.engine = gin.New()
 	s.engine.Use(
 		middleware.Recovery(),
@@ -63,7 +59,7 @@ func NewServer(log *xlog.Logger, cfg *ServerConfig, opts ...Option) (*Server, er
 	)
 
 	// Mount pprof routes if enabled.
-	if cfg.EnablePProf {
+	if config.EnablePProf {
 		s.registerPProf()
 	}
 
@@ -75,12 +71,10 @@ func (s *Server) Engine() *Engine {
 	return s.engine
 }
 
-// Start starts the HTTP server and blocks until receiving a shutdown signal.
-//
-// The server is started in a goroutine. If ListenAndServe fails with an error
-// other than http.ErrServerClosed (normal shutdown), it will panic.
-// The method blocks until a termination signal (SIGTERM or SIGINT) is received.
-func (s *Server) Start() {
+// Start starts the HTTP server in a background goroutine and returns immediately.
+// If the server fails to start, it will panic (to fail-fast during startup).
+// Use Stop to gracefully shut down the server.
+func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	s.httpServer = &http.Server{
 		Addr:         addr,
@@ -89,27 +83,35 @@ func (s *Server) Start() {
 		WriteTimeout: s.config.WriteTimeout,
 		IdleTimeout:  s.config.IdleTimeout,
 	}
+
 	s.log.Info("starting api server", "addr", addr)
 
+	// Start server in background
 	go func() {
 		err := s.httpServer.ListenAndServe()
-		if err == nil || err == http.ErrServerClosed {
-			s.log.Info("api server closed")
-		} else {
-			s.log.Error("failed to start api server", "error", err)
-			panic(err)
+		if err != nil && err != http.ErrServerClosed {
+			s.log.Error("api server stopped unexpectedly", "error", err)
+			panic(err) // Fail fast if server crashes unexpectedly
 		}
 	}()
 
-	s.waitForShutdown()
+	return nil
 }
 
-// Shutdown gracefully shuts down the HTTP server.
-func (s *Server) Shutdown(ctx context.Context) error {
+// Stop gracefully shuts down the HTTP server with the given context for timeout control.
+func (s *Server) Stop(ctx context.Context) error {
 	if s.httpServer == nil {
 		return nil
 	}
-	return s.httpServer.Shutdown(ctx)
+
+	s.log.Info("shutting down api server gracefully")
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		s.log.Error("failed to shutdown api server", "error", err)
+		return err
+	}
+
+	s.log.Info("api server shutdown complete")
+	return nil
 }
 
 // registerPProf mounts pprof routes to /debug/pprof.
@@ -129,23 +131,4 @@ func (s *Server) registerPProf() {
 		g.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
 		g.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
 	}
-}
-
-// waitForShutdown waits for a shutdown signal and performs graceful shutdown.
-func (s *Server) waitForShutdown() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-	<-sigChan
-
-	s.log.Info("shutting down api server gracefully")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := s.Shutdown(ctx); err != nil {
-		s.log.Error("failed to shutdown api server", "error", err)
-		return
-	}
-
-	s.log.Info("api server shutdown complete")
 }

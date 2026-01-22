@@ -10,6 +10,7 @@ Octopus是一个基于etcd的Go语言服务注册发现框架，提供了简单�
 - 🚀 **简单易用** - 简洁的API设计，开箱即用
 - 🔄 **自动重连** - 租约失效自动重注册，Watch断开自动重连
 - 🎯 **gRPC集成** - 内置gRPC Resolver实现
+- ⚙️ **Job/Task支持** - 一次性任务、定时任务、长期Worker，灵活执行
 - 📊 **可观测性** - Prometheus指标和健康检查端点
 - 🛡️ **生产就绪** - 经过充分测试，可直接用于生产环境
 - 🔧 **灵活配置** - 支持多种配置选项和扩展
@@ -181,6 +182,117 @@ func main() {
 }
 ```
 
+### Job/Task 任务执行
+
+Octopus 支持三种类型的任务执行：
+
+#### 1. 一次性任务（Once）- 启动前执行
+
+```go
+package main
+
+import (
+    "context"
+    "github.com/HorseArcher567/octopus/pkg/app"
+    "github.com/HorseArcher567/octopus/pkg/config"
+    "github.com/HorseArcher567/octopus/pkg/job"
+)
+
+func main() {
+    var cfg AppConfig
+    config.MustUnmarshal("config.yaml", &cfg)
+    app.Init(&cfg.Framework)
+
+    // 注册一次性任务（数据迁移、初始化等）
+    app.RegisterJob("init-db", job.JobTypeOnce, func(ctx context.Context) error {
+        // 初始化数据库
+        return initDatabase()
+    })
+
+    app.Run() // 执行完任务后自动退出
+}
+```
+
+#### 2. 定时任务（Cron）- 按计划执行
+
+```go
+// 注册定时任务（定时清理、报表生成等）
+app.RegisterCronJob("cleanup", "0 * * * *", func(ctx context.Context) error {
+    // 每小时执行一次清理
+    return cleanupExpiredData()
+})
+
+app.RegisterCronJob("report", "0 0 * * *", func(ctx context.Context) error {
+    // 每天 0 点生成报表
+    return generateDailyReport()
+})
+```
+
+#### 3. 长期 Worker - 持续运行
+
+```go
+// 注册 Worker 任务（消息队列消费者、监控等）
+app.RegisterJob("mq-consumer", job.JobTypeWorker, func(ctx context.Context) error {
+    for {
+        select {
+        case <-ctx.Done():
+            return nil // 优雅退出
+        default:
+            msg := consumeMessage()
+            processMessage(msg)
+        }
+    }
+})
+```
+
+#### 4. 混合模式 - Job + RPC + API 同时运行
+
+```go
+func main() {
+    app.Init(&cfg.Framework)
+
+    // 启动前执行初始化
+    app.RegisterJob("init", job.JobTypeOnce, initResources)
+
+    // 注册 RPC 服务
+    app.RegisterRpcServices(func(s *grpc.Server) {
+        pb.RegisterUserServer(s, &UserServer{})
+    })
+
+    // 注册 HTTP API
+    app.RegisterApiRoutes(func(engine *api.Engine) {
+        engine.GET("/health", healthHandler)
+    })
+
+    // 注册后台任务（与服务并行运行）
+    app.RegisterCronJob("cleanup", "*/5 * * * *", cleanupTask)
+    app.RegisterJob("worker", job.JobTypeWorker, backgroundWorker)
+
+    app.Run() // 所有组件并发运行
+}
+```
+
+**配置示例**：
+
+```yaml
+logger:
+  level: info
+
+job:
+  enabled: true           # 启用 Job 功能
+  concurrentLimit: 10     # 并发任务数限制
+
+rpcServer:                # 可选：RPC 服务配置
+  host: 0.0.0.0
+  port: 50051
+
+apiServer:                # 可选：HTTP API 配置
+  host: 0.0.0.0
+  port: 8080
+```
+
+查看完整示例：[examples/job-demo/](examples/job-demo/)
+
 ## 🔧 高级特性
 
 ### 自动重连和重注册
@@ -232,6 +344,19 @@ conn, _ := grpc.Dial(
 
 ## 📦 核心包说明
 
+### pkg/app
+**应用框架核心** - 统一管理 RPC Server、API Server 和 Job Runner 的生命周期。
+
+### pkg/rpc
+**gRPC 服务管理** - 提供 gRPC Server 和 Client 的封装，支持服务注册和发现。
+
+### pkg/api
+**HTTP API 服务** - 基于 Gin 的 HTTP 服务器，提供 RESTful API 支持。
+
+### pkg/job
+**任务执行框架** - 支持一次性任务、定时任务和长期 Worker 的统一管理。
+详见：[examples/job-demo/README.md](examples/job-demo/README.md)
+
 ### pkg/registry
 服务注册发现的核心实现，提供 Registry 和 Discovery 两个主要组件。
 
@@ -241,6 +366,9 @@ gRPC Resolver 实现，让 gRPC 客户端可以直接使用 `etcd:///service-nam
 ### pkg/config
 **灵活的配置管理包** - 支持 JSON/YAML/TOML，支持环境变量替换，类型安全的访问方法。
 详见：[pkg/config/README.md](pkg/config/README.md)
+
+### pkg/xlog
+**结构化日志** - 提供上下文感知的日志记录，支持日志轮转和多种输出格式。
 
 ### pkg/mapstruct
 **Map 到结构体的转换工具** - 提供灵活的类型转换，支持标签映射和嵌套结构。
@@ -294,6 +422,12 @@ gRPC Resolver 实现，让 gRPC 客户端可以直接使用 `etcd:///service-nam
 ### 示例代码
 
 查看 [examples/](examples/) 目录获取完整示例：
+- **multi-service/** - 多服务 RPC + API 完整示例
+- **job-demo/** - Job/Task 任务执行示例
+  - **once-job/** - 一次性任务（数据迁移、初始化）
+  - **cron-job/** - 定时任务（定时清理、报表生成）
+  - **worker-job/** - 长期 Worker（消息队列消费者）
+  - **mixed-mode/** - 混合模式（Job + RPC + API）
 - **simple/** - 基础的注册发现示例
 - **grpc/** - gRPC 集成示例
 - **config/** - 配置管理示例
@@ -303,14 +437,22 @@ gRPC Resolver 实现，让 gRPC 客户端可以直接使用 `etcd:///service-nam
 ```
 octopus/
 ├── pkg/                    # 核心包
-│   ├── registry/          # 服务注册与发现
-│   ├── resolver/          # gRPC Resolver实现
+│   ├── app/               # 应用框架核心
+│   ├── rpc/               # gRPC 服务管理
+│   ├── api/               # HTTP API 服务
+│   ├── job/               # 任务执行框架
+│   ├── etcd/              # etcd 客户端封装
+│   ├── xlog/              # 结构化日志
 │   ├── config/            # 配置管理
 │   └── mapstruct/         # Map结构体转换
 ├── examples/              # 示例代码
+│   ├── multi-service/    # 多服务示例
+│   ├── job-demo/         # Job 任务示例
 │   ├── simple/           # 简单示例
 │   ├── grpc/             # gRPC集成示例
 │   └── config/           # 配置示例
+├── cmd/                   # 命令行工具
+│   └── octopus-cli/      # 代码生成器
 ├── docs/                  # 文档
 │   ├── GRPC_FRAMEWORK.md # gRPC框架完整指南
 │   └── DEPLOYMENT.md     # 部署运维指南

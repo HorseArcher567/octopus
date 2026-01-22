@@ -7,6 +7,11 @@ logger:
   output: stdout        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
   maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
 
+# Job 配置（用于执行测试任务）
+job:
+  enabled: true         # 是否启用 Job 功能
+  concurrentLimit: 0    # 并发任务数限制，0 表示无限制
+
 # etcd 配置
 etcd:
   endpoints:            # etcd 节点地址列表
@@ -19,33 +24,10 @@ etcd:
   # username: ""       # etcd 用户名 (可选)
   # password: ""       # etcd 密码 (可选)
 
-# RPC 客户端配置
-# 支持两种模式：etcd 服务发现模式 或 直连模式
-
-# ============================================================================
-# 方式1：etcd 服务发现模式（生产环境推荐）
-# ============================================================================
-client:
-  # 目标服务地址
-  target: etcd:///multi-service-demo
-  # Keepalive 配置
+# RPC 客户端选项配置
+rpcClientOptions:
   enableKeepalive: true
   keepaliveTime: 10s
   keepaliveTimeout: 3s
   permitWithoutStream: true
-
-# ============================================================================
-# 方式2：直连模式（开发测试环境推荐）
-# ============================================================================
-# client:
-#   # 直连模式的服务地址列表（支持多个地址实现负载均衡）
-#   endpoints:
-#     - localhost:9000
-#     - localhost:9001
-#   
-#   # Keepalive 配置
-#   enableKeepalive: true
-#   keepaliveTime: 10s
-#   keepaliveTimeout: 3s
-#   permitWithoutStream: true
 

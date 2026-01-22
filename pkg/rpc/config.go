@@ -3,8 +3,6 @@ package rpc
 import (
 	"errors"
 	"fmt"
-	"net"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -12,20 +10,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-// ClientConfig is the configuration for the RPC client.
-// Target is the gRPC target URL that specifies how to connect to the service.
-// Examples:
-//   - "192.168.1.100:50051" for standard gRPC connection
-//   - "etcd:///serviceName" for etcd service discovery
-//   - "direct:///127.0.0.1:8080,127.0.0.1:8081" for direct connection with multiple endpoints
-type ClientConfig struct {
-	// Target is the gRPC target URL.
-	// Examples:
-	//   - "192.168.1.100:50051" for standard gRPC connection
-	//   - "etcd:///serviceName" for etcd service discovery
-	//   - "direct:///127.0.0.1:8080,127.0.0.1:8081" for direct connection with multiple endpoints
-	Target string `yaml:"target" json:"target" toml:"target"`
-
+type ClientOptions struct {
 	// LoadBalancingPolicy is the load balancing policy for the gRPC client.
 	// Common values: "round_robin", "pick_first", "grpclb" (default: "round_robin").
 	LoadBalancingPolicy string `yaml:"loadBalancingPolicy" json:"loadBalancingPolicy" toml:"loadBalancingPolicy"`
@@ -43,33 +28,9 @@ type ClientConfig struct {
 	PermitWithoutStream bool `yaml:"permitWithoutStream" json:"permitWithoutStream" toml:"permitWithoutStream"`
 }
 
-// Validate validates the client configuration.
-func (c *ClientConfig) Validate() error {
-	if c.Target == "" {
-		return errors.New("target is required")
-	}
-
-	// Validate target format.
-	// Support three formats:
-	// 1. Standard gRPC format: "host:port" (e.g., "192.168.1.100:50051")
-	// 2. etcd service discovery: "etcd:///serviceName"
-	// 3. Direct connection: "direct:///ip1:port1,ip2:port2"
-	if strings.HasPrefix(c.Target, "etcd:///") || strings.HasPrefix(c.Target, "direct:///") {
-		// Custom scheme format, already validated by prefix
-		return nil
-	}
-
-	// Standard gRPC format: validate host:port
-	if _, _, err := net.SplitHostPort(c.Target); err != nil {
-		return fmt.Errorf("invalid target format: %w (expected 'host:port', 'etcd:///serviceName', or 'direct:///ip1:port1,ip2:port2')", err)
-	}
-
-	return nil
-}
-
 // Normalize sets default values for the client configuration.
 // It is called automatically by NewClient before creating the connection.
-func (c *ClientConfig) Normalize() {
+func (c *ClientOptions) Normalize() {
 	if c.LoadBalancingPolicy == "" {
 		c.LoadBalancingPolicy = "round_robin"
 	}
@@ -90,7 +51,7 @@ func (c *ClientConfig) Normalize() {
 //   - Keepalive parameters (if enabled)
 //
 // The returned options can be used directly with grpc.NewClient.
-func (c *ClientConfig) BuildDialOptions() []grpc.DialOption {
+func (c *ClientOptions) BuildDialOptions() []grpc.DialOption {
 	c.Normalize()
 
 	opts := []grpc.DialOption{}

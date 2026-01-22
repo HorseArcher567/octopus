@@ -2,32 +2,23 @@ package app
 
 import (
 	"github.com/HorseArcher567/octopus/pkg/api"
+	"github.com/HorseArcher567/octopus/pkg/job"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 )
 
-// defaultApp 是类似 slog.Default() 的全局默认应用实例。
+// defaultApp is the global default application instance, similar to slog.Default.
 var defaultApp *App
 
-// Init 初始化默认应用实例。
-// 应在 main 函数启动阶段调用一次。
-// framework 是框架配置，用户应该在外部加载自己的配置（嵌入 app.Framework），然后提取 Framework 部分传入。
-//
-// 示例：
-//
-//	type AppConfig struct {
-//	    app.Framework
-//	    Database struct { ... } `yaml:"database"`
-//	}
-//
-//	var cfg AppConfig
-//	config.MustUnmarshal("config.yaml", &cfg)
-//	app.Init(&cfg.Framework)
+// Init initializes the global default application instance.
+// It should be called once during program startup, typically in main.
+// The framework parameter is the framework configuration, usually embedded in the user's own config struct.
 func Init(framework *Framework) {
 	defaultApp = New(framework)
 }
 
-// Default 返回当前默认应用实例。
-// 如果尚未调用 Init，则 panic。
+// Default returns the current global default application instance.
+// It panics if Init has not been called.
 func Default() *App {
 	if defaultApp == nil {
 		panic("app: defaultApp is not initialized, call app.Init() first")
@@ -35,30 +26,56 @@ func Default() *App {
 	return defaultApp
 }
 
-// OnBeforeRun 注册在 Run 之前执行的 Hook（默认实例）。
+// Logger returns the logger of the default application instance.
+func Logger() *xlog.Logger {
+	return Default().log
+}
+
+// OnBeforeRun registers a hook to be executed before Run on the default application instance.
 func OnBeforeRun(h BeforeRunHook) {
 	Default().OnBeforeRun(h)
 }
 
-// OnShutdown 注册在关闭阶段执行的 Hook（默认实例）。
+// OnShutdown registers a hook to be executed during shutdown on the default application instance.
 func OnShutdown(h ShutdownHook) {
 	Default().OnShutdown(h)
 }
 
-// RegisterRpcServices 在默认应用上注册 gRPC 服务。
+// RegisterRpcServices registers gRPC services on the default application instance.
 func RegisterRpcServices(register func(s *grpc.Server)) {
 	Default().RegisterRpcServices(register)
 }
 
-// RegisterApiRoutes 在默认应用上注册 HTTP API 路由。
+// RegisterApiRoutes registers HTTP API routes on the default application instance.
 func RegisterApiRoutes(register func(engine *api.Engine)) {
 	Default().RegisterApiRoutes(register)
 }
 
-// Run 启动默认应用
+// Run starts the default application instance.
 func Run() {
 	if defaultApp == nil {
 		panic("app: defaultApp is not initialized, call app.Init() first")
 	}
 	defaultApp.Run()
+}
+
+// MustNewRpcClient returns a gRPC client connection from the default application instance.
+// It panics if the client cannot be created or retrieved.
+func MustNewRpcClient(target string) *grpc.ClientConn {
+	conn, err := Default().NewRpcClient(target)
+	if err != nil {
+		panic(err)
+	}
+	return conn
+}
+
+// NewRpcClient returns a gRPC client connection from the default application instance.
+// If the connection does not exist, it is created lazily according to the configured options.
+func NewRpcClient(target string) (*grpc.ClientConn, error) {
+	return Default().NewRpcClient(target)
+}
+
+// AddJob adds a job to the default application instance.
+func AddJob(name string, fn job.Func) {
+	Default().AddJob(name, fn)
 }

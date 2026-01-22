@@ -26,7 +26,14 @@ rpcServer:
   host: 0.0.0.0                # 监听地址 
   port: 9001                   # 监听端口
   enableReflection: true       # 是否启用 gRPC 反射 (推荐开发/测试环境启用)
-  advertiseAddr: 10.247.19.74  # 注册到 etcd 的地址，如果为空则不注册到 etcd
+  advertiseAddr: 127.0.0.1  # 注册到 etcd 的地址，如果为空则不注册到 etcd
+
+# RPC 客户端选项配置
+rpcClientOptions:
+  enableKeepalive: true
+  keepaliveTime: 10s
+  keepaliveTimeout: 3s
+  permitWithoutStream: true
 
 # HTTP API 服务器配置
 apiServer:

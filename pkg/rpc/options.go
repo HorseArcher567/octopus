@@ -1,17 +1,17 @@
 package rpc
 
 import (
-	"github.com/HorseArcher567/octopus/pkg/etcd"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 )
 
 // Option defines a functional option for configuring the RPC Server.
 type Option func(s *Server)
 
-// WithEtcdConfig sets the etcd configuration for the server.
-func WithEtcdConfig(cfg *etcd.Config) Option {
+// WithEtcdClient sets the etcd client for the server.
+func WithEtcdClient(etcdClient *clientv3.Client) Option {
 	return func(s *Server) {
-		s.etcdConfig = cfg
+		s.etcdClient = etcdClient
 	}
 }
 

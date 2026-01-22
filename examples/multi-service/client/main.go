@@ -2,161 +2,166 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
+	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/config"
-	"github.com/HorseArcher567/octopus/pkg/etcd"
-	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
+// AppConfig 应用配置
+type AppConfig struct {
+	app.Framework // 嵌入框架配置
+	// 注意：RpcClients 已经在 app.Framework 中定义，无需重复
+}
+
 func main() {
-	ctx := context.Background()
+	// 1. 加载配置
+	var cfg AppConfig
+	config.MustUnmarshal("config.yaml", &cfg)
 
-	// 方式1：从配置文件加载（推荐）
-	// 加载配置文件
-	cfg, err := config.Load("config.yaml")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
+	// 2. 初始化框架
+	app.Init(&cfg.Framework)
 
-	var logConfig xlog.Config
-	if err := cfg.UnmarshalKey("logger", &logConfig); err != nil {
-		log.Fatalf("Failed to load log config: %v", err)
-	}
-	log := xlog.MustNew(&logConfig)
+	// 3. 注册测试任务
+	app.AddJob("test-services", runServiceTests)
 
-	// 从配置文件中加载 etcd 配置
-	var etcdCfg etcd.Config
-	if err := cfg.UnmarshalKey("etcd", &etcdCfg); err != nil {
-		log.Error("Failed to load etcd config", "error", err)
-	}
-	rpc.RegisterResolver(log, &etcdCfg)
+	// 4. 启动应用（执行完测试后自动退出）
+	app.Run()
+}
 
-	var clientConfig rpc.ClientConfig
-	if err := cfg.UnmarshalKey("client", &clientConfig); err != nil {
-		log.Error("Failed to load client config", "error", err)
-		panic(err)
-	}
+// runServiceTests 执行所有服务测试
+func runServiceTests(ctx context.Context, log *xlog.Logger) error {
+	conn := app.MustNewRpcClient("etcd:///multi-service-demo")
 
-	// 从配置文件中创建客户端
-	conn, err := rpc.NewClient(log, &clientConfig)
-	if err != nil {
-		log.Error("Failed to create client", "error", err)
-		panic(err)
-	}
-	defer conn.Close()
-
-	// 创建不同的 gRPC 服务客户端（共享同一个连接）
+	// 创建 gRPC 服务客户端
 	userClient := pb.NewUserClient(conn)
 	orderClient := pb.NewOrderClient(conn)
 	productClient := pb.NewProductClient(conn)
 
-	// 创建带超时的 context，用于所有 RPC 调用
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 创建带超时的 context
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	// 执行测试
 	log.Info("=== Testing UserService ===")
-	testUserService(ctx, userClient)
+	testUserService(testCtx, userClient, log)
 
-	log.Info("\n=== Testing OrderService ===")
-	testOrderService(ctx, orderClient)
+	log.Info("=== Testing OrderService ===")
+	testOrderService(testCtx, orderClient, log)
 
-	log.Info("\n=== Testing ProductService ===")
-	testProductService(ctx, productClient)
+	log.Info("=== Testing ProductService ===")
+	testProductService(testCtx, productClient, log)
 
-	log.Info("\n=== Testing ApiServer (HTTP) ===")
-	testApiServer()
+	log.Info("=== Testing ApiServer (HTTP) ===")
+	testApiServer(log)
 
-	log.Info("\n✅ All tests completed successfully!")
+	log.Info("✅ All tests completed successfully!")
+	return nil
 }
 
-func testUserService(ctx context.Context, client pb.UserClient) {
-	// 测试 GetUser
+// testUserService tests the UserService gRPC methods.
+func testUserService(ctx context.Context, client pb.UserClient, log *xlog.Logger) {
+	// Test GetUser.
 	getUserResp, err := client.GetUser(ctx, &pb.GetUserRequest{
 		UserId: 1001,
 	})
 	if err != nil {
-		log.Printf("❌ GetUser failed: %v", err)
+		log.Error("❌ GetUser failed", "error", err)
 		return
 	}
-	log.Printf("✅ GetUser: user_id=%d, username=%s, email=%s",
-		getUserResp.UserId, getUserResp.Username, getUserResp.Email)
+	log.Info("✅ GetUser",
+		"user_id", getUserResp.UserId,
+		"username", getUserResp.Username,
+		"email", getUserResp.Email)
 
-	// 测试 CreateUser
+	// Test CreateUser.
 	createUserResp, err := client.CreateUser(ctx, &pb.CreateUserRequest{
 		Username: "newuser",
 		Email:    "newuser@example.com",
 	})
 	if err != nil {
-		log.Printf("❌ CreateUser failed: %v", err)
+		log.Error("❌ CreateUser failed", "error", err)
 		return
 	}
-	log.Printf("✅ CreateUser: user_id=%d, message=%s",
-		createUserResp.UserId, createUserResp.Message)
+	log.Info("✅ CreateUser",
+		"user_id", createUserResp.UserId,
+		"message", createUserResp.Message)
 }
 
-func testOrderService(ctx context.Context, client pb.OrderClient) {
-	// 测试 GetOrder
+// testOrderService tests the OrderService gRPC methods.
+func testOrderService(ctx context.Context, client pb.OrderClient, log *xlog.Logger) {
+	// Test GetOrder.
 	getOrderResp, err := client.GetOrder(ctx, &pb.GetOrderRequest{
 		OrderId: 2001,
 	})
 	if err != nil {
-		log.Printf("❌ GetOrder failed: %v", err)
+		log.Error("❌ GetOrder failed", "error", err)
 		return
 	}
-	log.Printf("✅ GetOrder: order_id=%d, product=%s, amount=%.2f, status=%s",
-		getOrderResp.OrderId, getOrderResp.ProductName, getOrderResp.Amount, getOrderResp.Status)
+	log.Info("✅ GetOrder",
+		"order_id", getOrderResp.OrderId,
+		"product", getOrderResp.ProductName,
+		"amount", getOrderResp.Amount,
+		"status", getOrderResp.Status)
 
-	// 测试 CreateOrder
+	// Test CreateOrder.
 	createOrderResp, err := client.CreateOrder(ctx, &pb.CreateOrderRequest{
 		UserId:      1001,
 		ProductName: "New Product",
 		Amount:      199.99,
 	})
 	if err != nil {
-		log.Printf("❌ CreateOrder failed: %v", err)
+		log.Error("❌ CreateOrder failed", "error", err)
 		return
 	}
-	log.Printf("✅ CreateOrder: order_id=%d, message=%s",
-		createOrderResp.OrderId, createOrderResp.Message)
+	log.Info("✅ CreateOrder",
+		"order_id", createOrderResp.OrderId,
+		"message", createOrderResp.Message)
 }
 
-func testProductService(ctx context.Context, client pb.ProductClient) {
-	// 测试 GetProduct
+// testProductService tests the ProductService gRPC methods.
+func testProductService(ctx context.Context, client pb.ProductClient, log *xlog.Logger) {
+	// Test GetProduct.
 	getProductResp, err := client.GetProduct(ctx, &pb.GetProductRequest{
 		ProductId: 1,
 	})
 	if err != nil {
-		log.Printf("❌ GetProduct failed: %v", err)
+		log.Error("❌ GetProduct failed", "error", err)
 		return
 	}
-	log.Printf("✅ GetProduct: product_id=%d, name=%s, price=%.2f, stock=%d",
-		getProductResp.ProductId, getProductResp.Name, getProductResp.Price, getProductResp.Stock)
+	log.Info("✅ GetProduct",
+		"product_id", getProductResp.ProductId,
+		"name", getProductResp.Name,
+		"price", getProductResp.Price,
+		"stock", getProductResp.Stock)
 
-	// 测试 ListProducts
+	// Test ListProducts.
 	listProductsResp, err := client.ListProducts(ctx, &pb.ListProductsRequest{
 		Page:     1,
 		PageSize: 10,
 	})
 	if err != nil {
-		log.Printf("❌ ListProducts failed: %v", err)
+		log.Error("❌ ListProducts failed", "error", err)
 		return
 	}
-	log.Printf("✅ ListProducts: total=%d products", listProductsResp.Total)
+	log.Info("✅ ListProducts", "total", listProductsResp.Total)
 	for i, product := range listProductsResp.Products {
-		log.Printf("   [%d] %s - $%.2f (stock: %d)",
-			i+1, product.Name, product.Price, product.Stock)
+		log.Info("  Product",
+			"index", i+1,
+			"name", product.Name,
+			"price", product.Price,
+			"stock", product.Stock)
 	}
 }
 
-// testApiServer 测试 HTTP ApiServer 的 /hello 接口。
-func testApiServer() {
-	// 允许通过环境变量覆盖 API 地址，默认为本机 8080 端口。
+// testApiServer tests the HTTP API server's /hello endpoint.
+func testApiServer(log *xlog.Logger) {
+	// Allow API address to be overridden via environment variable.
+	// Defaults to localhost:8080.
 	apiAddr := os.Getenv("API_SERVER_ADDR")
 	if apiAddr == "" {
 		apiAddr = "http://localhost:8080"
@@ -165,10 +170,10 @@ func testApiServer() {
 	url := apiAddr + "/hello"
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Printf("❌ ApiServer /hello request failed: %v", err)
+		log.Error("❌ ApiServer /hello request failed", "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	log.Printf("✅ ApiServer /hello: status=%d, url=%s", resp.StatusCode, url)
+	log.Info("✅ ApiServer /hello", "status", resp.StatusCode, "url", url)
 }

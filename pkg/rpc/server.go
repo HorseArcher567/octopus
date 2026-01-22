@@ -1,11 +1,9 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -62,9 +60,11 @@ func (s *Server) RegisterServices(registerFunc func(*grpc.Server)) {
 	registerFunc(s.grpcServer)
 }
 
-// Start starts the gRPC server and blocks until a shutdown signal is received
-// and the server has been gracefully stopped.
-func (s *Server) Start() {
+// Start starts the gRPC server in a background goroutine and returns immediately.
+// It enables reflection if configured and registers the service to etcd if configured.
+// If the server fails to start, it will panic (to fail-fast during startup).
+// Use Stop to gracefully shut down the server.
+func (s *Server) Start() error {
 	// Enable reflection if configured.
 	if s.config.EnableReflection {
 		reflection.Register(s.grpcServer)
@@ -76,15 +76,16 @@ func (s *Server) Start() {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		s.log.Error("failed to listen", "error", err)
-		panic(err)
+		return err
 	}
 
-	// Start gRPC server.
 	s.log.Info("starting rpc server", "addr", addr)
+
+	// Start gRPC server in background.
 	go func() {
 		if err := s.grpcServer.Serve(lis); err != nil {
-			s.log.Error("server stopped", "error", err)
-			panic(err)
+			s.log.Error("rpc server stopped unexpectedly", "error", err)
+			panic(err) // Fail fast if server crashes unexpectedly
 		}
 	}()
 
@@ -92,12 +93,38 @@ func (s *Server) Start() {
 	if s.config.ShouldRegisterInstance() {
 		if err := s.registerInstance(); err != nil {
 			s.log.Error("failed to register service", "error", err)
-			panic(err)
+			return err
 		}
 	}
 
-	// Wait for shutdown signal.
-	s.waitForShutdown()
+	return nil
+}
+
+// Stop gracefully stops the server and unregisters it from the registry if present.
+// It blocks until the server has finished shutting down.
+func (s *Server) Stop(ctx context.Context) error {
+	s.log.Info("shutting down rpc server gracefully")
+
+	if s.registry != nil {
+		s.registry.Unregister()
+	}
+
+	// GracefulStop will block until all connections are closed or ctx is cancelled
+	done := make(chan struct{})
+	go func() {
+		s.grpcServer.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		s.log.Info("rpc server shutdown complete")
+		return nil
+	case <-ctx.Done():
+		s.log.Warn("rpc server shutdown timeout, forcing stop")
+		s.grpcServer.Stop() // Force stop
+		return ctx.Err()
+	}
 }
 
 // registerInstance registers the service instance to the service registry (etcd) using the provided configuration.
@@ -109,37 +136,14 @@ func (s *Server) registerInstance() error {
 	}
 
 	// Create a context that carries the logger.
-	reg, err := registry.NewRegistry(s.log, s.etcdClient, instance)
+	r, err := registry.NewRegistry(s.log, s.etcdClient, instance)
 	if err != nil {
 		return err
 	}
 
-	reg.Register()
-	s.registry = reg
+	r.Register()
+	s.registry = r
 	s.log.Info("instance registered to etcd", "instance", instance)
 
 	return nil
-}
-
-// waitForShutdown blocks until a termination signal is received and then
-// performs a graceful shutdown sequence.
-func (s *Server) waitForShutdown() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-	<-sigChan
-
-	s.log.Info("shutting down gracefully")
-
-	s.Stop()
-
-	s.log.Info("shutdown complete")
-}
-
-// Stop gracefully stops the server and unregisters it from the registry if present.
-func (s *Server) Stop() {
-	if s.registry != nil {
-		s.registry.Unregister()
-	}
-
-	s.grpcServer.GracefulStop()
 }

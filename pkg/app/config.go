@@ -7,13 +7,16 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
-// Framework 是框架级配置，聚合日志、RPC 与 API 服务配置。
-// 用户应该在自己的配置结构体中嵌入此类型，在外部加载配置后，将 Framework 部分传给 app.Init。
+// Framework holds framework-level configuration such as logging, RPC, API server,
+// job runner and RPC clients.
+// It is intended to be embedded into the user's own application config struct.
+// After loading the full config externally, the embedded Framework part should be
+// passed to app.Init.
 //
-// 示例：
+// Example:
 //
 //	type AppConfig struct {
-//	    app.Framework  // 嵌入框架配置
+//	    app.Framework
 //	    Database struct {
 //	        Host string `yaml:"host"`
 //	        Port int    `yaml:"port"`
@@ -23,11 +26,21 @@ import (
 //	func main() {
 //	    var cfg AppConfig
 //	    config.MustUnmarshal("config.yaml", &cfg)
-//	    app.Init(&cfg.Framework)  // 只传入框架配置部分
+//	    app.Init(&cfg.Framework)
 //	}
 type Framework struct {
-	LoggerCfg xlog.Config       `yaml:"logger" json:"logger" toml:"logger"`
-	EtcdCfg   *etcd.Config      `yaml:"etcd" json:"etcd" toml:"etcd"`
+	// LoggerCfg configures the application logger.
+	LoggerCfg xlog.Config `yaml:"logger" json:"logger" toml:"logger"`
+
+	// EtcdCfg configures the shared etcd client used for service discovery and other integrations.
+	EtcdCfg *etcd.Config `yaml:"etcd" json:"etcd" toml:"etcd"`
+
+	// RpcSvrCfg configures the gRPC server.
 	RpcSvrCfg *rpc.ServerConfig `yaml:"rpcServer" json:"rpcServer" toml:"rpcServer"`
+
+	// RpcCliOptions configures default options applied when creating RPC clients.
+	RpcCliOptions rpc.ClientOptions `yaml:"rpcClientOptions" json:"rpcClientOptions" toml:"rpcClientOptions"`
+
+	// ApiSvrCfg configures the HTTP API server.
 	ApiSvrCfg *api.ServerConfig `yaml:"apiServer" json:"apiServer" toml:"apiServer"`
 }
