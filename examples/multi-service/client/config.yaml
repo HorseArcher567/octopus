@@ -21,13 +21,15 @@ etcd:
   dialTimeout: 5s       # 连接超时时间 (默认 5s)
   autoSyncInterval: 60s # 自动同步集群成员间隔 (默认 60s)
   leaseTTL: 60          # 租约时间 (秒，默认 60)
-  # username: ""       # etcd 用户名 (可选)
-  # password: ""       # etcd 密码 (可选)
+  username: "root"       # etcd 用户名 (可选)
+  password: "123456"       # etcd 密码 (可选)
 
 # RPC 客户端选项配置
 rpcClientOptions:
-  enableKeepalive: true
-  keepaliveTime: 10s
-  keepaliveTimeout: 3s
-  permitWithoutStream: true
+  loadBalancingPolicy: round_robin
+
+  keepalive:
+    time: 30s                       # 客户端多久没活动就 ping 服务端
+    timeout: 10s                    # ping 后等待响应的超时（建议至少 10s，避免网络延迟导致超时）
+    permitWithoutStream: true       # 是否允许无活跃流时也发送 ping
 

@@ -7,13 +7,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Logging 返回一个简单的 HTTP 请求日志中间件。
-// 会记录 method、path、status、latency 等信息。
+// LoggerInjector injects the given Logger into the Context of each request.
+// Subsequent middlewares and handlers can retrieve the same Logger via xlog.FromContext(c.Request.Context()).
+func LoggerInjector(base *xlog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Put the base logger into the request context.
+		ctx := xlog.WithContext(c.Request.Context(), base)
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Next()
+	}
+}
+
+// Logging returns a simple HTTP request logging middleware.
+// It logs method, path, status, latency and client IP for each request.
 func Logging() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
-		// 处理请求
+		// Process the request.
 		c.Next()
 
 		latency := time.Since(start)

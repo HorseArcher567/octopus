@@ -745,3 +745,138 @@ func BenchmarkOrderDecoding(b *testing.B) {
 		decoder.Decode(input, &order)
 	}
 }
+
+// ===== Duration 解码测试 =====
+
+type DurationConfig struct {
+	Timeout     time.Duration `yaml:"timeout"`
+	Interval    time.Duration `yaml:"interval"`
+	MaxWaitTime time.Duration `yaml:"maxWaitTime"`
+}
+
+func TestDurationDecoding(t *testing.T) {
+	decoder := New()
+
+	t.Run("String format duration", func(t *testing.T) {
+		input := map[string]any{
+			"timeout":     "30s",
+			"interval":    "5m",
+			"maxWaitTime": "1h",
+		}
+
+		var config DurationConfig
+		err := decoder.Decode(input, &config)
+		if err != nil {
+			t.Fatalf("Duration decoding failed: %v", err)
+		}
+
+		if config.Timeout != 30*time.Second {
+			t.Errorf("Expected timeout 30s, got %v", config.Timeout)
+		}
+		if config.Interval != 5*time.Minute {
+			t.Errorf("Expected interval 5m, got %v", config.Interval)
+		}
+		if config.MaxWaitTime != 1*time.Hour {
+			t.Errorf("Expected maxWaitTime 1h, got %v", config.MaxWaitTime)
+		}
+	})
+
+	t.Run("Int64 as seconds", func(t *testing.T) {
+		input := map[string]any{
+			"timeout":     int64(30),   // 30 秒
+			"interval":    int64(300),  // 300 秒 = 5 分钟
+			"maxWaitTime": int64(3600), // 3600 秒 = 1 小时
+		}
+
+		var config DurationConfig
+		err := decoder.Decode(input, &config)
+		if err != nil {
+			t.Fatalf("Duration decoding failed: %v", err)
+		}
+
+		if config.Timeout != 30*time.Second {
+			t.Errorf("Expected timeout 30s, got %v", config.Timeout)
+		}
+		if config.Interval != 300*time.Second {
+			t.Errorf("Expected interval 300s, got %v", config.Interval)
+		}
+		if config.MaxWaitTime != 3600*time.Second {
+			t.Errorf("Expected maxWaitTime 3600s, got %v", config.MaxWaitTime)
+		}
+	})
+
+	t.Run("Int as seconds", func(t *testing.T) {
+		input := map[string]any{
+			"timeout":  15, // 15 秒
+			"interval": 60, // 60 秒
+		}
+
+		var config DurationConfig
+		err := decoder.Decode(input, &config)
+		if err != nil {
+			t.Fatalf("Duration decoding failed: %v", err)
+		}
+
+		if config.Timeout != 15*time.Second {
+			t.Errorf("Expected timeout 15s, got %v", config.Timeout)
+		}
+		if config.Interval != 60*time.Second {
+			t.Errorf("Expected interval 60s, got %v", config.Interval)
+		}
+	})
+
+	t.Run("Float64 as seconds", func(t *testing.T) {
+		input := map[string]any{
+			"timeout":     30.5, // 30.5 秒
+			"interval":    1.5,  // 1.5 秒
+			"maxWaitTime": 0.5,  // 0.5 秒
+		}
+
+		var config DurationConfig
+		err := decoder.Decode(input, &config)
+		if err != nil {
+			t.Fatalf("Duration decoding failed: %v", err)
+		}
+
+		expectedTimeout := time.Duration(30.5 * float64(time.Second))
+		if config.Timeout != expectedTimeout {
+			t.Errorf("Expected timeout %v, got %v", expectedTimeout, config.Timeout)
+		}
+
+		expectedInterval := time.Duration(1.5 * float64(time.Second))
+		if config.Interval != expectedInterval {
+			t.Errorf("Expected interval %v, got %v", expectedInterval, config.Interval)
+		}
+
+		expectedMaxWaitTime := time.Duration(0.5 * float64(time.Second))
+		if config.MaxWaitTime != expectedMaxWaitTime {
+			t.Errorf("Expected maxWaitTime %v, got %v", expectedMaxWaitTime, config.MaxWaitTime)
+		}
+	})
+
+	t.Run("Consistent behavior: int64 and float64 both as seconds", func(t *testing.T) {
+		// 验证 int64 和 float64 都按秒处理，行为一致
+		input1 := map[string]any{
+			"timeout": int64(30),
+		}
+		input2 := map[string]any{
+			"timeout": 30.0,
+		}
+
+		var config1, config2 DurationConfig
+		err1 := decoder.Decode(input1, &config1)
+		err2 := decoder.Decode(input2, &config2)
+		if err1 != nil || err2 != nil {
+			t.Fatalf("Duration decoding failed: err1=%v, err2=%v", err1, err2)
+		}
+
+		// 两者应该得到相同的结果（允许微小的浮点误差）
+		diff := config1.Timeout - config2.Timeout
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > time.Millisecond {
+			t.Errorf("Expected consistent behavior: int64(30) and 30.0 should produce similar results, got %v vs %v", config1.Timeout, config2.Timeout)
+		}
+	})
+}

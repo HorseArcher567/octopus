@@ -7,8 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Recovery 是一个简单的 panic 恢复中间件。
-// 发生 panic 时返回 500，并记录错误日志。
+// Recovery returns a simple panic recovery middleware.
+// It recovers from panics, logs the error, and returns HTTP 500.
 func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {

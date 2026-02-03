@@ -54,6 +54,7 @@ func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server,
 	gin.SetMode(config.Mode)
 	s.engine = gin.New()
 	s.engine.Use(
+		middleware.LoggerInjector(s.log),
 		middleware.Recovery(),
 		middleware.Logging(),
 	)

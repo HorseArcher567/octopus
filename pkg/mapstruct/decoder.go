@@ -202,6 +202,11 @@ func (d *Decoder) decodeField(inputValue any, targetValue reflect.Value) error {
 		return d.decodeToStruct(inputValue, targetValue, targetType)
 	}
 
+	// 特殊处理 time.Duration（实际上是 int64 类型）
+	if targetType.String() == "time.Duration" {
+		return d.decodeToDuration(inputValue, targetValue)
+	}
+
 	// 处理基本类型
 	return d.decodeBasicType(inputValue, targetValue, targetType)
 }
@@ -321,6 +326,54 @@ func (d *Decoder) decodeToTime(inputValue any, targetValue reflect.Value) error 
 
 	default:
 		return fmt.Errorf("cannot decode %T to time.Time", inputValue)
+	}
+}
+
+// decodeToDuration 解码到 time.Duration 类型
+func (d *Decoder) decodeToDuration(inputValue any, targetValue reflect.Value) error {
+	var duration time.Duration
+	var err error
+
+	switch v := inputValue.(type) {
+	case string:
+		// 使用 time.ParseDuration 解析持续时间字符串（如 "10s", "5m", "1h"）
+		duration, err = time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("cannot parse duration string %q: %w", v, err)
+		}
+		targetValue.SetInt(int64(duration))
+		return nil
+
+	case time.Duration:
+		targetValue.SetInt(int64(v))
+		return nil
+
+	case int64:
+		// 秒数（转换为纳秒）
+		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
+		// 如果需要传递纳秒值，请使用 time.Duration 类型或字符串格式（如 "10s"）
+		duration = time.Duration(v * int64(time.Second))
+		targetValue.SetInt(int64(duration))
+		return nil
+
+	case int:
+		// 秒数（转换为纳秒）
+		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
+		// 如果需要传递纳秒值，请使用 time.Duration 类型或字符串格式（如 "10s"）
+		duration = time.Duration(v * int(time.Second))
+		targetValue.SetInt(int64(duration))
+		return nil
+
+	case float64:
+		// 秒数（转换为纳秒）
+		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
+		// 支持小数秒，例如 1.5 表示 1.5 秒
+		duration = time.Duration(v * float64(time.Second))
+		targetValue.SetInt(int64(duration))
+		return nil
+
+	default:
+		return fmt.Errorf("cannot decode %T to time.Duration", inputValue)
 	}
 }
 

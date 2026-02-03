@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
 // AppConfig 应用配置
@@ -36,6 +38,10 @@ func main() {
 // runServiceTests 执行所有服务测试
 func runServiceTests(ctx context.Context, log *xlog.Logger) error {
 	conn := app.MustNewRpcClient("etcd:///multi-service-demo")
+	defer conn.Close()
+
+	// 监控连接状态（用于调试）
+	go monitorConnectionState(ctx, conn, log)
 
 	// 创建 gRPC 服务客户端
 	userClient := pb.NewUserClient(conn)
@@ -63,6 +69,40 @@ func runServiceTests(ctx context.Context, log *xlog.Logger) error {
 	return nil
 }
 
+// monitorConnectionState 监控 gRPC 连接状态变化（用于调试）
+// 可以通过设置环境变量 GRPC_GO_LOG_VERBOSITY_LEVEL=99 和 GRPC_GO_LOG_SEVERITY_LEVEL=info 来启用 gRPC 详细日志
+func monitorConnectionState(ctx context.Context, conn *grpc.ClientConn, log *xlog.Logger) {
+	currentState := conn.GetState()
+	log.Info("initial connection state", "state", currentState.String())
+
+	for {
+		// WaitForStateChange 会阻塞直到状态改变或 ctx 取消
+		if !conn.WaitForStateChange(ctx, currentState) {
+			// Context 被取消，退出监控
+			return
+		}
+
+		newState := conn.GetState()
+		log.Info("connection state changed",
+			"from", currentState.String(),
+			"to", newState.String())
+
+		// 如果连接失败，记录详细信息
+		switch newState {
+		case connectivity.TransientFailure:
+			log.Warn("connection transient failure, may retry")
+		case connectivity.Ready:
+			log.Info("connection is ready")
+		case connectivity.Idle:
+			log.Info("connection is idle")
+		case connectivity.Connecting:
+			log.Info("connection is connecting")
+		}
+
+		currentState = newState
+	}
+}
+
 // testUserService tests the UserService gRPC methods.
 func testUserService(ctx context.Context, client pb.UserClient, log *xlog.Logger) {
 	// Test GetUser.
@@ -71,12 +111,12 @@ func testUserService(ctx context.Context, client pb.UserClient, log *xlog.Logger
 	})
 	if err != nil {
 		log.Error("❌ GetUser failed", "error", err)
-		return
+	} else {
+		log.Info("✅ GetUser",
+			"user_id", getUserResp.UserId,
+			"username", getUserResp.Username,
+			"email", getUserResp.Email)
 	}
-	log.Info("✅ GetUser",
-		"user_id", getUserResp.UserId,
-		"username", getUserResp.Username,
-		"email", getUserResp.Email)
 
 	// Test CreateUser.
 	createUserResp, err := client.CreateUser(ctx, &pb.CreateUserRequest{
@@ -85,11 +125,11 @@ func testUserService(ctx context.Context, client pb.UserClient, log *xlog.Logger
 	})
 	if err != nil {
 		log.Error("❌ CreateUser failed", "error", err)
-		return
+	} else {
+		log.Info("✅ CreateUser",
+			"user_id", createUserResp.UserId,
+			"message", createUserResp.Message)
 	}
-	log.Info("✅ CreateUser",
-		"user_id", createUserResp.UserId,
-		"message", createUserResp.Message)
 }
 
 // testOrderService tests the OrderService gRPC methods.
@@ -100,13 +140,13 @@ func testOrderService(ctx context.Context, client pb.OrderClient, log *xlog.Logg
 	})
 	if err != nil {
 		log.Error("❌ GetOrder failed", "error", err)
-		return
+	} else {
+		log.Info("✅ GetOrder",
+			"order_id", getOrderResp.OrderId,
+			"product", getOrderResp.ProductName,
+			"amount", getOrderResp.Amount,
+			"status", getOrderResp.Status)
 	}
-	log.Info("✅ GetOrder",
-		"order_id", getOrderResp.OrderId,
-		"product", getOrderResp.ProductName,
-		"amount", getOrderResp.Amount,
-		"status", getOrderResp.Status)
 
 	// Test CreateOrder.
 	createOrderResp, err := client.CreateOrder(ctx, &pb.CreateOrderRequest{
@@ -116,11 +156,11 @@ func testOrderService(ctx context.Context, client pb.OrderClient, log *xlog.Logg
 	})
 	if err != nil {
 		log.Error("❌ CreateOrder failed", "error", err)
-		return
+	} else {
+		log.Info("✅ CreateOrder",
+			"order_id", createOrderResp.OrderId,
+			"message", createOrderResp.Message)
 	}
-	log.Info("✅ CreateOrder",
-		"order_id", createOrderResp.OrderId,
-		"message", createOrderResp.Message)
 }
 
 // testProductService tests the ProductService gRPC methods.
@@ -131,14 +171,13 @@ func testProductService(ctx context.Context, client pb.ProductClient, log *xlog.
 	})
 	if err != nil {
 		log.Error("❌ GetProduct failed", "error", err)
-		return
+	} else {
+		log.Info("✅ GetProduct",
+			"product_id", getProductResp.ProductId,
+			"name", getProductResp.Name,
+			"price", getProductResp.Price,
+			"stock", getProductResp.Stock)
 	}
-	log.Info("✅ GetProduct",
-		"product_id", getProductResp.ProductId,
-		"name", getProductResp.Name,
-		"price", getProductResp.Price,
-		"stock", getProductResp.Stock)
-
 	// Test ListProducts.
 	listProductsResp, err := client.ListProducts(ctx, &pb.ListProductsRequest{
 		Page:     1,
@@ -146,15 +185,15 @@ func testProductService(ctx context.Context, client pb.ProductClient, log *xlog.
 	})
 	if err != nil {
 		log.Error("❌ ListProducts failed", "error", err)
-		return
-	}
-	log.Info("✅ ListProducts", "total", listProductsResp.Total)
-	for i, product := range listProductsResp.Products {
-		log.Info("  Product",
-			"index", i+1,
-			"name", product.Name,
-			"price", product.Price,
-			"stock", product.Stock)
+	} else {
+		log.Info("✅ ListProducts", "total", listProductsResp.Total)
+		for i, product := range listProductsResp.Products {
+			log.Info("  Product",
+				"index", i+1,
+				"name", product.Name,
+				"price", product.Price,
+				"stock", product.Stock)
+		}
 	}
 }
 
@@ -162,18 +201,29 @@ func testProductService(ctx context.Context, client pb.ProductClient, log *xlog.
 func testApiServer(log *xlog.Logger) {
 	// Allow API address to be overridden via environment variable.
 	// Defaults to localhost:8080.
-	apiAddr := os.Getenv("API_SERVER_ADDR")
-	if apiAddr == "" {
-		apiAddr = "http://localhost:8080"
+	apiAddr := "http://localhost:8090"
+	url := apiAddr + "/hello"
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 5 * time.Second,
 	}
 
-	url := apiAddr + "/hello"
-	resp, err := http.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		log.Error("❌ ApiServer /hello request failed", "error", err)
 		return
 	}
 	defer resp.Body.Close()
+
+	// Read response body to allow connection reuse
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	// Check HTTP status code
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Error("❌ ApiServer /hello returned error status", "status", resp.StatusCode, "url", url)
+		return
+	}
 
 	log.Info("✅ ApiServer /hello", "status", resp.StatusCode, "url", url)
 }

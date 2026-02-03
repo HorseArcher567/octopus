@@ -50,6 +50,31 @@ func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server,
 		opt(s)
 	}
 
+	// Configure keepalive if configured
+	keepaliveOpts := s.config.Keepalive.BuildServerOptions()
+	if len(keepaliveOpts) > 0 {
+		// Log keepalive configuration
+		// Note: keepaliveOpts is non-empty only if s.config.Keepalive is not nil
+		if s.config.Keepalive.ServerParameters != nil {
+			sp := s.config.Keepalive.ServerParameters
+			logFields := []any{
+				"maxConnectionIdle", formatDuration(sp.MaxConnectionIdle),
+				"maxConnectionAge", formatDuration(sp.MaxConnectionAge),
+				"maxConnectionAgeGrace", formatDuration(sp.MaxConnectionAgeGrace),
+				"time", formatDuration(sp.Time),
+				"timeout", formatDuration(sp.Timeout),
+			}
+			s.log.Info("configuring keepalive server parameters", logFields...)
+		}
+		if s.config.Keepalive.EnforcementPolicy != nil {
+			ep := s.config.Keepalive.EnforcementPolicy
+			s.log.Info("configuring keepalive enforcement policy",
+				"minTime", formatDuration(ep.MinTime),
+				"permitWithoutStream", ep.PermitWithoutStream)
+		}
+		s.grpcOptions = append(s.grpcOptions, keepaliveOpts...)
+	}
+
 	s.grpcServer = grpc.NewServer(s.grpcOptions...)
 	return s, nil
 }
