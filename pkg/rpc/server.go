@@ -85,11 +85,17 @@ func (s *Server) RegisterServices(registerFunc func(*grpc.Server)) {
 	registerFunc(s.grpcServer)
 }
 
-// Start starts the gRPC server in a background goroutine and returns immediately.
-// It enables reflection if configured and registers the service to etcd if configured.
-// If the server fails to start, it will panic (to fail-fast during startup).
-// Use Stop to gracefully shut down the server.
-func (s *Server) Start() error {
+// Run starts the gRPC server and blocks until ctx is cancelled or server errors.
+// Note: Run does NOT call Stop; Stop is called by App uniformly.
+func (s *Server) Run(ctx context.Context) error {
+	// Register to etcd if configured (do this before starting server)
+	if s.config.ShouldRegisterInstance() {
+		if err := s.registerInstance(); err != nil {
+			s.log.Error("failed to register instance to etcd", "error", err)
+			return err
+		}
+	}
+
 	// Enable reflection if configured.
 	if s.config.EnableReflection {
 		reflection.Register(s.grpcServer)
@@ -106,23 +112,22 @@ func (s *Server) Start() error {
 
 	s.log.Info("starting rpc server", "addr", addr)
 
-	// Start gRPC server in background.
+	// Start server in goroutine
+	errCh := make(chan error, 1)
 	go func() {
+		defer close(errCh)
 		if err := s.grpcServer.Serve(lis); err != nil {
-			s.log.Error("rpc server stopped unexpectedly", "error", err)
-			panic(err) // Fail fast if server crashes unexpectedly
+			errCh <- err
 		}
 	}()
 
-	// Register service instance to etcd, if configured.
-	if s.config.ShouldRegisterInstance() {
-		if err := s.registerInstance(); err != nil {
-			s.log.Error("failed to register service", "error", err)
-			return err
-		}
+	// Wait for ctx cancelled or server error
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return nil
 	}
-
-	return nil
 }
 
 // Stop gracefully stops the server and unregisters it from the registry if present.

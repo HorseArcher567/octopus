@@ -72,10 +72,9 @@ func (s *Server) Engine() *Engine {
 	return s.engine
 }
 
-// Start starts the HTTP server in a background goroutine and returns immediately.
-// If the server fails to start, it will panic (to fail-fast during startup).
-// Use Stop to gracefully shut down the server.
-func (s *Server) Start() error {
+// Run starts the HTTP server and blocks until ctx is cancelled or server errors.
+// Note: Run does NOT call Stop; Stop is called by App uniformly.
+func (s *Server) Run(ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	s.httpServer = &http.Server{
 		Addr:         addr,
@@ -87,16 +86,23 @@ func (s *Server) Start() error {
 
 	s.log.Info("starting api server", "addr", addr)
 
-	// Start server in background
+	// Start server in goroutine
+	errCh := make(chan error, 1)
 	go func() {
 		err := s.httpServer.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
-			s.log.Error("api server stopped unexpectedly", "error", err)
-			panic(err) // Fail fast if server crashes unexpectedly
+			errCh <- err
 		}
+		close(errCh)
 	}()
 
-	return nil
+	// Wait for ctx cancelled or server error
+	select {
+	case err := <-errCh:
+		return err // server error
+	case <-ctx.Done():
+		return nil // ctx cancelled, return normally, wait for App to call Stop
+	}
 }
 
 // Stop gracefully shuts down the HTTP server with the given context for timeout control.

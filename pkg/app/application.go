@@ -3,10 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
@@ -16,14 +13,15 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/rpc/resolver"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
 // BeforeRunHook is executed before the service starts. If it returns an error, the startup process will be aborted.
-type BeforeRunHook func(ctx context.Context, a *App)
+type BeforeRunHook func(ctx context.Context, a *App) error
 
 // ShutdownHook is executed during service shutdown. Even if it returns an error, subsequent hooks will continue to execute.
-type ShutdownHook func(ctx context.Context, a *App)
+type ShutdownHook func(ctx context.Context, a *App) error
 
 // App encapsulates the application lifecycle that hosts both gRPC and HTTP API services, and job execution.
 type App struct {
@@ -42,6 +40,9 @@ type App struct {
 
 	// etcdClient is the shared etcd client used for service discovery and configuration.
 	etcdClient *clientv3.Client
+
+	// shutdownTimeout is the timeout for graceful shutdown.
+	shutdownTimeout time.Duration
 
 	// beforeRunHooks are hooks executed before the application starts running.
 	beforeRunHooks []BeforeRunHook
@@ -67,7 +68,9 @@ func New(framework *Framework) *App {
 		panic("app: framework config cannot be nil")
 	}
 
-	a := &App{}
+	a := &App{
+		shutdownTimeout: framework.ShutdownTimeout,
+	}
 
 	// Initialize logger
 	a.initLogger(&framework.LoggerCfg)
@@ -163,102 +166,100 @@ func (a *App) RegisterApiRoutes(register func(engine *api.Engine)) *App {
 	return a
 }
 
-// Run starts the application and blocks until a shutdown signal is received.
-// It manages the complete lifecycle: start all components, wait for signal, then stop all components.
-//
-// Execution order:
-// 1) Run OnBeforeRun hooks;
-// 2) Start all components (API Server, RPC Server are non-blocking; Job Scheduler runs in background);
-// 3) Wait for shutdown signal (SIGTERM, SIGINT);
-// 4) Gracefully stop all components in order (API → RPC → Jobs);
-// 5) Run OnShutdown hooks and cleanup resources.
-//
-// The shutdown process uses a timeout (default 10s) to ensure the application doesn't hang indefinitely.
-func (a *App) Run() {
-	// 1. BeforeRun hooks
-	a.runBeforeRunHooks()
+const defaultShutdownTimeout = 30 * time.Second
 
-	// 2. Start all servers (non-blocking)
-	if a.apiServer != nil {
-		if err := a.apiServer.Start(); err != nil {
-			a.log.Error("failed to start api server", "error", err)
-			panic(err)
-		}
+// Run starts all configured components (such as the RPC server, API server, and job scheduler)
+// and blocks until ctx is canceled or all components exit.
+// It runs registered BeforeRun hooks, starts components concurrently, and waits for them to terminate.
+// The caller is responsible for invoking Stop after Run returns to perform graceful shutdown and cleanup.
+func (a *App) Run(ctx context.Context) error {
+	a.log.Info("starting application ...")
+
+	// 1. Before hooks
+	if err := a.runBeforeRunHooks(ctx); err != nil {
+		a.log.Error("failed to run application startup hooks", "error", err)
+		a.log.Info("application exited with error", "error", err)
+		return err
 	}
+
+	// 2. Start all components concurrently
+	g, runCtx := errgroup.WithContext(ctx)
 
 	if a.rpcServer != nil {
-		if err := a.rpcServer.Start(); err != nil {
-			a.log.Error("failed to start rpc server", "error", err)
-			panic(err)
-		}
+		a.log.Info("starting rpc server ...")
+		g.Go(func() error { return a.rpcServer.Run(runCtx) })
 	}
 
-	// Start job scheduler (non-blocking)
+	if a.apiServer != nil {
+		a.log.Info("starting api server ...")
+		g.Go(func() error { return a.apiServer.Run(runCtx) })
+	}
+
 	if a.jobScheduler != nil {
-		if err := a.jobScheduler.Start(); err != nil {
-			a.log.Error("failed to start job scheduler", "error", err)
-			panic(err)
-		}
+		a.log.Info("starting job scheduler ...")
+		g.Go(func() error { return a.jobScheduler.Run(runCtx) })
 	}
 
-	// 4. Wait for shutdown signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-	sig := <-sigChan
-	signal.Stop(sigChan)
+	// 3. Wait for all components to exit
+	// This blocks until: ctx is cancelled OR all components return
+	runErr := g.Wait()
+	a.log.Info("all components exited", "error", runErr)
 
-	a.log.Info("received shutdown signal, stopping all services", "signal", sig)
+	return runErr
+}
 
-	// 5. Create shutdown context with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
+// Stop gracefully shuts down all components and releases shared resources.
+// It creates a bounded shutdown context, stops each component, runs registered Shutdown hooks,
+// and then closes RPC clients and the logger.
+// It is safe to call Stop multiple times; component shutdown should be idempotent.
+func (a *App) Stop() {
+	// 1. Create shutdown context for graceful stop
+	timeout := a.shutdownTimeout
+	if timeout == 0 {
+		timeout = defaultShutdownTimeout
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-	// 6. Stop all components gracefully in order
-	// Stop API server first (stop accepting new requests)
+	// 2. Stop all components gracefully (idempotent - safe even if already stopped)
+	if a.jobScheduler != nil {
+		if err := a.jobScheduler.Stop(shutdownCtx); err != nil {
+			a.log.Error("error stopping job scheduler", "error", err)
+		}
+	}
 	if a.apiServer != nil {
 		if err := a.apiServer.Stop(shutdownCtx); err != nil {
 			a.log.Error("error stopping api server", "error", err)
 		}
 	}
-
-	// Stop RPC server next
 	if a.rpcServer != nil {
 		if err := a.rpcServer.Stop(shutdownCtx); err != nil {
 			a.log.Error("error stopping rpc server", "error", err)
 		}
 	}
 
-	// Stop job scheduler last (wait for all jobs to finish)
-	if a.jobScheduler != nil {
-		if err := a.jobScheduler.Stop(shutdownCtx); err != nil {
-			a.log.Error("error stopping job scheduler", "error", err)
-		}
-	}
+	// 7. Shutdown hooks
+	a.runShutdownHooks(shutdownCtx)
 
-	// 7. Shutdown hooks (execute even if services reported errors)
-	a.runShutdownHooks()
-
-	// 8. Cleanup resources
+	// 8. Cleanup
 	a.CloseRpcClients()
 	a.log.Close()
-
-	a.log.Info("application shutdown complete")
 }
 
-func (a *App) runBeforeRunHooks() {
-	ctx := context.Background()
+func (a *App) runBeforeRunHooks(ctx context.Context) error {
 	for _, h := range a.beforeRunHooks {
-		h(ctx, a)
+		if err := h(ctx, a); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (a *App) runShutdownHooks() {
-	// Fixed timeout duration, can be extended to read from configuration later.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (a *App) runShutdownHooks(ctx context.Context) {
 	for _, h := range a.shutdownHooks {
-		h(ctx, a)
+		if err := h(ctx, a); err != nil {
+			a.log.Error("shutdown hook error", "error", err)
+		}
 	}
 }
 
@@ -306,7 +307,7 @@ func (a *App) NewRpcClient(target string) (*grpc.ClientConn, error) {
 // CloseRpcClients closes all cached RPC client connections.
 // This is called automatically during app shutdown.
 func (a *App) CloseRpcClients() {
-
+	// TODO: implement
 }
 
 func (a *App) AddJob(name string, fn job.Func) {

@@ -5,7 +5,7 @@ logger:
   level: debug          # 日志级别: debug/info/warn/error (默认: info)
   format: json          # 日志格式: json/text (默认: text)
   addSource: true      # 是否添加源码位置 (文件名、行号)
-  output: stdout        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
+  output: ./logs/server.log        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
   maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
 
 # etcd 配置

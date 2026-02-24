@@ -1,6 +1,10 @@
 package app
 
 import (
+	"context"
+	"os/signal"
+	"syscall"
+
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/job"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -51,12 +55,21 @@ func RegisterApiRoutes(register func(engine *api.Engine)) {
 	Default().RegisterApiRoutes(register)
 }
 
-// Run starts the default application instance.
-func Run() {
-	if defaultApp == nil {
-		panic("app: defaultApp is not initialized, call app.Init() first")
-	}
-	defaultApp.Run()
+// Run starts the default application instance and blocks until ctx is cancelled.
+func Run(ctx context.Context) error {
+	return Default().Run(ctx)
+}
+
+// RunWithSignals starts the default application instance and blocks until ctx is cancelled or a signal is received.
+func RunWithSignals() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	return Default().Run(ctx)
+}
+
+// Stop stops the default application instance.
+func Stop() {
+	Default().Stop()
 }
 
 // MustNewRpcClient returns a gRPC client connection from the default application instance.

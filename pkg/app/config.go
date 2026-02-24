@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
@@ -43,4 +45,9 @@ type Framework struct {
 
 	// ApiSvrCfg configures the HTTP API server.
 	ApiSvrCfg *api.ServerConfig `yaml:"apiServer" json:"apiServer" toml:"apiServer"`
+
+	// ShutdownTimeout is the timeout for graceful shutdown.
+	// Default: 30s (handled in App.Run)
+	// If set to 0 or not configured, the default value is used.
+	ShutdownTimeout time.Duration `yaml:"shutdownTimeout" json:"shutdownTimeout" toml:"shutdownTimeout"`
 }

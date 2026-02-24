@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"os/signal"
+	"syscall"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL 驱动
 
@@ -225,6 +227,12 @@ func main() {
 		})
 	})
 
-	// 启动应用
-	app.Run()
+	// 运行（信号处理在这里）
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	if err := app.Run(ctx); err != nil {
+		app.Logger().Error("app exited with error", "error", err)
+	}
+	app.Stop()
 }

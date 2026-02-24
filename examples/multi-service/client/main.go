@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
@@ -31,8 +32,12 @@ func main() {
 	// 3. 注册测试任务
 	app.AddJob("test-services", runServiceTests)
 
-	// 4. 启动应用（执行完测试后自动退出）
-	app.Run()
+	// 4. 启动应用（信号处理在app.RunWithSignal中）
+	if err := app.RunWithSignals(); err != nil {
+		app.Logger().Error("app exited with error", "error", err)
+		os.Exit(1)
+	}
+	app.Stop()
 }
 
 // runServiceTests 执行所有服务测试
