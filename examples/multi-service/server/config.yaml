@@ -3,7 +3,7 @@
 # 日志配置
 logger:
   level: debug          # 日志级别: debug/info/warn/error (默认: info)
-  format: json          # 日志格式: json/text (默认: text)
+  format: text          # 日志格式: json/text (默认: text)
   addSource: true      # 是否添加源码位置 (文件名、行号)
   output: ./logs/server.log        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
   maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
@@ -57,12 +57,24 @@ apiServer:
   mode: release                # Gin 模式: debug/release
   enablePProf: false           # 是否启用 pprof
 
-# 数据库配置
-database:
-  dsn: "root:123456@tcp(localhost:3306)/octopus?charset=utf8mb4&parseTime=True&loc=Local"
-  driverName: "mysql"
-  maxOpenConns: 100
-  maxIdleConns: 10
-  connMaxLifetime: 3600  # seconds (1 hour)
-  connMaxIdleTime: 600   # seconds (10 minutes)
-
+# 资源配置
+resources:
+  mysql:
+    primary:
+      dsn: "root:123456@tcp(localhost:3306)/octopus?charset=utf8mb4&parseTime=True&loc=Local"
+      driverName: "mysql"
+      maxOpenConns: 100
+      maxIdleConns: 10
+      connMaxLifetime: 3600  # seconds (1 hour)
+      connMaxIdleTime: 600   # seconds (10 minutes)
+  redis:
+    cache:
+      addr: "localhost:6379"
+      db: 0
+      poolSize: 50
+      minIdleConns: 10
+      dialTimeout: 3s
+      readTimeout: 2s
+      writeTimeout: 2s
+  init:
+    pingTimeout: 3s

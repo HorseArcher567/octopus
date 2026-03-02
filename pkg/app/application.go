@@ -2,13 +2,19 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
+	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/database"
 	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/job"
+	redisclient "github.com/HorseArcher567/octopus/pkg/redis"
+	"github.com/HorseArcher567/octopus/pkg/resource"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"github.com/HorseArcher567/octopus/pkg/rpc/resolver"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -17,10 +23,12 @@ import (
 	"google.golang.org/grpc"
 )
 
-// BeforeRunHook is executed before the service starts. If it returns an error, the startup process will be aborted.
-type BeforeRunHook func(ctx context.Context, a *App) error
+// StartupHook is executed before components are started.
+// If it returns an error, startup is aborted.
+type StartupHook func(ctx context.Context, a *App) error
 
-// ShutdownHook is executed during service shutdown. Even if it returns an error, subsequent hooks will continue to execute.
+// ShutdownHook is executed during shutdown.
+// Even if it returns an error, subsequent shutdown hooks continue to run.
 type ShutdownHook func(ctx context.Context, a *App) error
 
 // App encapsulates the application lifecycle that hosts both gRPC and HTTP API services, and job execution.
@@ -41,62 +49,104 @@ type App struct {
 	// etcdClient is the shared etcd client used for service discovery and configuration.
 	etcdClient *clientv3.Client
 
+	// resources holds shared infrastructure resources initialized from configuration.
+	resources *resource.Manager
+
 	// shutdownTimeout is the timeout for graceful shutdown.
 	shutdownTimeout time.Duration
 
-	// beforeRunHooks are hooks executed before the application starts running.
-	beforeRunHooks []BeforeRunHook
-	// shutdownHooks are hooks executed during application shutdown.
+	// startupHooks are startup hooks executed before components start.
+	startupHooks []StartupHook
+	// shutdownHooks are hooks executed during shutdown.
 	shutdownHooks []ShutdownHook
+
+	shutdownOnce sync.Once
+	runMu        sync.Mutex
+	hasRun       bool
 }
 
-// New creates a new App instance and immediately initializes it based on the framework configuration.
-// framework is the framework configuration. Users should load their own configuration externally (embedding app.Framework), then extract and pass the Framework part.
-//
-// Example:
-//
-//	type AppConfig struct {
-//	    app.Framework
-//	    Database struct { ... } `yaml:"database"`
-//	}
-//
-//	var cfg AppConfig
-//	config.MustUnmarshal("config.yaml", &cfg)
-//	application := app.New(&cfg.Framework)
-func New(framework *Framework) *App {
-	if framework == nil {
-		panic("app: framework config cannot be nil")
+// New creates a new App from a raw config object.
+// It reads framework keys from cfg (logger/etcd/rpcServer/rpcClientOptions/apiServer/resources/shutdownTimeout).
+func New(cfg *config.Config) *App {
+	if cfg == nil {
+		panic("app: config cannot be nil")
 	}
+
+	var (
+		loggerCfg       xlog.Config
+		etcdCfg         *etcd.Config
+		rpcSvrCfg       *rpc.ServerConfig
+		rpcCliOptions   rpc.ClientOptions
+		apiSvrCfg       *api.ServerConfig
+		resourcesCfg    *resource.Config
+		shutdownTimeout time.Duration
+	)
+
+	unmarshalKeyIfExists(cfg, "logger", &loggerCfg)
+	unmarshalKeyIfExists(cfg, "etcd", &etcdCfg)
+	unmarshalKeyIfExists(cfg, "rpcServer", &rpcSvrCfg)
+	unmarshalKeyIfExists(cfg, "rpcClientOptions", &rpcCliOptions)
+	unmarshalKeyIfExists(cfg, "apiServer", &apiSvrCfg)
+	unmarshalKeyIfExists(cfg, "resources", &resourcesCfg)
+	shutdownTimeout = mustLoadDurationIfExists(cfg, "shutdownTimeout")
 
 	a := &App{
-		shutdownTimeout: framework.ShutdownTimeout,
+		shutdownTimeout: shutdownTimeout,
 	}
 
-	// Initialize logger
-	a.initLogger(&framework.LoggerCfg)
-
-	// Init RPC client options if configured
-	a.initRpcCliOptions(&framework.RpcCliOptions)
-
-	// Init job schedule if configured
+	a.initLogger(&loggerCfg)
+	a.initRpcCliOptions(&rpcCliOptions)
 	a.initJobSchedule()
 
-	// Init etcd client if configured
-	if framework.EtcdCfg != nil {
-		a.initEtcdClient(framework.EtcdCfg)
+	if etcdCfg != nil {
+		a.initEtcdClient(etcdCfg)
 	}
-
-	// Init RPC server if configured
-	if framework.RpcSvrCfg != nil {
-		a.initRpcServer(framework.RpcSvrCfg)
+	if rpcSvrCfg != nil {
+		a.initRpcServer(rpcSvrCfg)
 	}
-
-	// Init HTTP API server if configured
-	if framework.ApiSvrCfg != nil {
-		a.initApiServer(framework.ApiSvrCfg)
+	if apiSvrCfg != nil {
+		a.initApiServer(apiSvrCfg)
+	}
+	if resourcesCfg != nil {
+		a.initResources(resourcesCfg)
 	}
 
 	return a
+}
+
+func unmarshalKeyIfExists(cfg *config.Config, key string, target any) {
+	if !cfg.Has(key) {
+		return
+	}
+	if err := cfg.UnmarshalKey(key, target); err != nil {
+		panic(fmt.Errorf("app: invalid %s config: %w", key, err))
+	}
+}
+
+func mustLoadDurationIfExists(cfg *config.Config, key string) time.Duration {
+	value, ok := cfg.Get(key)
+	if !ok {
+		return 0
+	}
+
+	switch v := value.(type) {
+	case time.Duration:
+		return v
+	case string:
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			panic(fmt.Errorf("app: invalid %s duration %q: %w", key, v, err))
+		}
+		return d
+	case int:
+		return time.Duration(v) * time.Second
+	case int64:
+		return time.Duration(v) * time.Second
+	case float64:
+		return time.Duration(v * float64(time.Second))
+	default:
+		panic(fmt.Errorf("app: invalid %s type %T, expected duration string or numeric seconds", key, value))
+	}
 }
 
 // initLogger initializes the logger if configured.
@@ -127,17 +177,21 @@ func (a *App) initApiServer(cfg *api.ServerConfig) {
 	a.apiServer = api.MustNewServer(a.log, cfg)
 }
 
-// OnBeforeRun registers a hook to be executed before Run.
-// Hooks are executed in registration order. The first error encountered will abort the startup process.
-func (a *App) OnBeforeRun(h BeforeRunHook) *App {
+func (a *App) initResources(cfg *resource.Config) {
+	a.resources = resource.MustNew(cfg)
+}
+
+// OnStartup registers a startup hook.
+// Hooks run in registration order. The first error aborts startup.
+func (a *App) OnStartup(h StartupHook) *App {
 	if h != nil {
-		a.beforeRunHooks = append(a.beforeRunHooks, h)
+		a.startupHooks = append(a.startupHooks, h)
 	}
 	return a
 }
 
-// OnShutdown registers a hook to be executed during service shutdown.
-// Even if a hook returns an error, subsequent hooks will continue to execute.
+// OnShutdown registers a shutdown hook.
+// Even if a hook returns an error, subsequent hooks continue to run.
 func (a *App) OnShutdown(h ShutdownHook) *App {
 	if h != nil {
 		a.shutdownHooks = append(a.shutdownHooks, h)
@@ -166,20 +220,63 @@ func (a *App) RegisterApiRoutes(register func(engine *api.Engine)) *App {
 	return a
 }
 
+// Logger returns the application logger.
+func (a *App) Logger() *xlog.Logger {
+	return a.log
+}
+
+// Resources returns the shared infrastructure resources manager.
+func (a *App) Resources() *resource.Manager {
+	return a.resources
+}
+
+// MySQL returns a named MySQL connection from the shared resource manager.
+func (a *App) MySQL(name string) (*database.DB, error) {
+	if a.resources == nil {
+		return nil, errors.New("app: resources are not initialized (check resources config)")
+	}
+	return a.resources.MySQL(name)
+}
+
+// Redis returns a named Redis client from the shared resource manager.
+func (a *App) Redis(name string) (*redisclient.Client, error) {
+	if a.resources == nil {
+		return nil, errors.New("app: resources are not initialized (check resources config)")
+	}
+	return a.resources.Redis(name)
+}
+
 const defaultShutdownTimeout = 30 * time.Second
 
 // Run starts all configured components (such as the RPC server, API server, and job scheduler)
-// and blocks until ctx is canceled or all components exit.
-// It runs registered BeforeRun hooks, starts components concurrently, and waits for them to terminate.
-// The caller is responsible for invoking Stop after Run returns to perform graceful shutdown and cleanup.
-func (a *App) Run(ctx context.Context) error {
+// and blocks until ctx is canceled or any component exits with an error.
+// Run guarantees graceful shutdown and resource cleanup before returning.
+// Run can only be called once for an App instance.
+func (a *App) Run(ctx context.Context) (retErr error) {
+	a.runMu.Lock()
+	if a.hasRun {
+		a.runMu.Unlock()
+		return errors.New("app: Run can only be called once")
+	}
+	a.hasRun = true
+	a.runMu.Unlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	a.log.Info("starting application ...")
+	defer func() {
+		shutdownErr := a.shutdown()
+		retErr = errors.Join(retErr, shutdownErr)
+	}()
 
 	// 1. Before hooks
-	if err := a.runBeforeRunHooks(ctx); err != nil {
+	if err := a.execStartupHooks(ctx); err != nil {
 		a.log.Error("failed to run application startup hooks", "error", err)
 		a.log.Info("application exited with error", "error", err)
-		return err
+		retErr = err
+		return retErr
 	}
 
 	// 2. Start all components concurrently
@@ -202,52 +299,16 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 3. Wait for all components to exit
 	// This blocks until: ctx is cancelled OR all components return
-	runErr := g.Wait()
-	a.log.Info("all components exited", "error", runErr)
-
-	return runErr
+	retErr = g.Wait()
+	a.log.Info("all components exited", "error", retErr)
+	if errors.Is(retErr, context.Canceled) || errors.Is(retErr, context.DeadlineExceeded) {
+		return nil
+	}
+	return retErr
 }
 
-// Stop gracefully shuts down all components and releases shared resources.
-// It creates a bounded shutdown context, stops each component, runs registered Shutdown hooks,
-// and then closes RPC clients and the logger.
-// It is safe to call Stop multiple times; component shutdown should be idempotent.
-func (a *App) Stop() {
-	// 1. Create shutdown context for graceful stop
-	timeout := a.shutdownTimeout
-	if timeout == 0 {
-		timeout = defaultShutdownTimeout
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// 2. Stop all components gracefully (idempotent - safe even if already stopped)
-	if a.jobScheduler != nil {
-		if err := a.jobScheduler.Stop(shutdownCtx); err != nil {
-			a.log.Error("error stopping job scheduler", "error", err)
-		}
-	}
-	if a.apiServer != nil {
-		if err := a.apiServer.Stop(shutdownCtx); err != nil {
-			a.log.Error("error stopping api server", "error", err)
-		}
-	}
-	if a.rpcServer != nil {
-		if err := a.rpcServer.Stop(shutdownCtx); err != nil {
-			a.log.Error("error stopping rpc server", "error", err)
-		}
-	}
-
-	// 7. Shutdown hooks
-	a.runShutdownHooks(shutdownCtx)
-
-	// 8. Cleanup
-	a.CloseRpcClients()
-	a.log.Close()
-}
-
-func (a *App) runBeforeRunHooks(ctx context.Context) error {
-	for _, h := range a.beforeRunHooks {
+func (a *App) execStartupHooks(ctx context.Context) error {
+	for _, h := range a.startupHooks {
 		if err := h(ctx, a); err != nil {
 			return err
 		}
@@ -255,12 +316,66 @@ func (a *App) runBeforeRunHooks(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) runShutdownHooks(ctx context.Context) {
+func (a *App) execShutdownHooks(ctx context.Context) error {
+	var errs []error
 	for _, h := range a.shutdownHooks {
 		if err := h(ctx, a); err != nil {
 			a.log.Error("shutdown hook error", "error", err)
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
+}
+
+func (a *App) shutdown() error {
+	var shutdownErr error
+	a.shutdownOnce.Do(func() {
+		timeout := a.shutdownTimeout
+		if timeout == 0 {
+			timeout = defaultShutdownTimeout
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		var errs []error
+
+		if a.apiServer != nil {
+			if err := a.apiServer.Stop(shutdownCtx); err != nil {
+				a.log.Error("error stopping api server", "error", err)
+				errs = append(errs, fmt.Errorf("stop api server: %w", err))
+			}
+		}
+		if a.rpcServer != nil {
+			if err := a.rpcServer.Stop(shutdownCtx); err != nil {
+				a.log.Error("error stopping rpc server", "error", err)
+				errs = append(errs, fmt.Errorf("stop rpc server: %w", err))
+			}
+		}
+		if a.jobScheduler != nil {
+			if err := a.jobScheduler.Stop(shutdownCtx); err != nil {
+				a.log.Error("error stopping job scheduler", "error", err)
+				errs = append(errs, fmt.Errorf("stop job scheduler: %w", err))
+			}
+		}
+
+		if err := a.execShutdownHooks(shutdownCtx); err != nil {
+			errs = append(errs, fmt.Errorf("shutdown hooks: %w", err))
+		}
+
+		if a.resources != nil {
+			if err := a.resources.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close resources: %w", err))
+			}
+		}
+
+		a.CloseRpcClients()
+		if err := a.log.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close logger: %w", err))
+		}
+
+		shutdownErr = errors.Join(errs...)
+	})
+	return shutdownErr
 }
 
 // NewRpcClient returns a new gRPC client connection for the given target.

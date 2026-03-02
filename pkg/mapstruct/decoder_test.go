@@ -880,3 +880,80 @@ func TestDurationDecoding(t *testing.T) {
 		}
 	})
 }
+
+type mapDBConfig struct {
+	DSN          string `yaml:"dsn"`
+	MaxOpenConns int    `yaml:"maxOpenConns"`
+}
+
+type mapRedisConfig struct {
+	Addr string `yaml:"addr"`
+	DB   int    `yaml:"db"`
+}
+
+type mapResourceConfig struct {
+	MySQL map[string]mapDBConfig     `yaml:"mysql"`
+	Redis map[string]*mapRedisConfig `yaml:"redis"`
+}
+
+func TestMapStringStructDecoding(t *testing.T) {
+	decoder := New()
+
+	input := map[string]any{
+		"mysql": map[string]any{
+			"primary": map[string]any{
+				"dsn":          "root:pass@tcp(localhost:3306)/app",
+				"maxOpenConns": 100,
+			},
+			"readonly": map[string]any{
+				"dsn":          "root:pass@tcp(localhost:3306)/app_read",
+				"maxOpenConns": 20,
+			},
+		},
+		"redis": map[string]any{
+			"cache": map[string]any{
+				"addr": "127.0.0.1:6379",
+				"db":   0,
+			},
+		},
+	}
+
+	var cfg mapResourceConfig
+	if err := decoder.Decode(input, &cfg); err != nil {
+		t.Fatalf("map decode failed: %v", err)
+	}
+
+	if len(cfg.MySQL) != 2 {
+		t.Fatalf("expected 2 mysql configs, got %d", len(cfg.MySQL))
+	}
+	if cfg.MySQL["primary"].DSN == "" {
+		t.Fatalf("expected mysql.primary.dsn to be decoded")
+	}
+	if cfg.MySQL["readonly"].MaxOpenConns != 20 {
+		t.Fatalf("expected mysql.readonly.maxOpenConns=20, got %d", cfg.MySQL["readonly"].MaxOpenConns)
+	}
+	if cfg.Redis["cache"] == nil {
+		t.Fatalf("expected redis.cache pointer to be decoded")
+	}
+	if cfg.Redis["cache"].Addr != "127.0.0.1:6379" {
+		t.Fatalf("unexpected redis.cache.addr: %s", cfg.Redis["cache"].Addr)
+	}
+}
+
+func TestDecode_DoublePointerTarget(t *testing.T) {
+	decoder := New()
+	input := map[string]any{
+		"timeout": "30s",
+	}
+
+	var cfg *DurationConfig
+	if err := decoder.Decode(input, &cfg); err != nil {
+		t.Fatalf("decode to **T failed: %v", err)
+	}
+	if cfg == nil {
+		t.Fatalf("expected cfg to be allocated")
+	}
+	if cfg.Timeout != 30*time.Second {
+		t.Fatalf("expected timeout 30s, got %v", cfg.Timeout)
+	}
+}

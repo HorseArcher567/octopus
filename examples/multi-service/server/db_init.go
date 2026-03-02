@@ -9,20 +9,13 @@ import (
 )
 
 // initDatabase 初始化数据库并创建表结构
-func initDatabase(cfg *database.Config) (*database.DB, error) {
-	// 创建数据库连接
-	db, err := database.New(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
+func initDatabase(db *database.DB) error {
 	// 创建表结构
 	if err := createTables(context.Background(), db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to create tables: %w", err)
+		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
-	return db, nil
+	return nil
 }
 
 // createTables 创建数据库表

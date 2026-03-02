@@ -4,40 +4,20 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/app"
-	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 )
 
-// AppConfig 应用配置
-type AppConfig struct {
-	app.Framework // 嵌入框架配置
-	// 注意：RpcClients 已经在 app.Framework 中定义，无需重复
-}
-
 func main() {
-	// 1. 加载配置
-	var cfg AppConfig
-	config.MustUnmarshal("config.yaml", &cfg)
-
-	// 2. 初始化框架
-	app.Init(&cfg.Framework)
-
-	// 3. 注册测试任务
-	app.AddJob("test-services", runServiceTests)
-
-	// 4. 启动应用（信号处理在app.RunWithSignal中）
-	if err := app.RunWithSignals(); err != nil {
-		app.Logger().Error("app exited with error", "error", err)
-		os.Exit(1)
-	}
-	app.Stop()
+	app.MustRun("config.yaml", func() error {
+		app.AddJob("test-services", runServiceTests)
+		return nil
+	})
 }
 
 // runServiceTests 执行所有服务测试

@@ -118,6 +118,53 @@ func TestConfig_UnmarshalKey(t *testing.T) {
 	}
 }
 
+func TestConfig_UnmarshalKey_MapStringStruct(t *testing.T) {
+	type DB struct {
+		DSN string `yaml:"dsn"`
+	}
+	type Resources struct {
+		MySQL map[string]DB `yaml:"mysql"`
+	}
+
+	cfg := New()
+	cfg.Set("resources.mysql.primary.dsn", "root:pass@tcp(localhost:3306)/app")
+	cfg.Set("resources.mysql.readonly.dsn", "root:pass@tcp(localhost:3306)/app_read")
+
+	var resources Resources
+	if err := cfg.UnmarshalKey("resources", &resources); err != nil {
+		t.Fatalf("failed to unmarshal resources: %v", err)
+	}
+
+	if len(resources.MySQL) != 2 {
+		t.Fatalf("expected 2 mysql configs, got %d", len(resources.MySQL))
+	}
+	if resources.MySQL["primary"].DSN == "" {
+		t.Fatalf("expected mysql.primary.dsn to be decoded")
+	}
+}
+
+func TestConfig_UnmarshalKey_DoublePointer(t *testing.T) {
+	type Database struct {
+		Host string `yaml:"host"`
+		Port int    `yaml:"port"`
+	}
+
+	cfg := New()
+	cfg.Set("database.host", "localhost")
+	cfg.Set("database.port", 3306)
+
+	var db *Database
+	if err := cfg.UnmarshalKey("database", &db); err != nil {
+		t.Fatalf("failed to unmarshal to **T: %v", err)
+	}
+	if db == nil {
+		t.Fatalf("expected db to be allocated")
+	}
+	if db.Host != "localhost" || db.Port != 3306 {
+		t.Fatalf("unexpected decoded db: %+v", db)
+	}
+}
+
 func TestParser_JSON(t *testing.T) {
 	jsonData := []byte(`{"name": "test", "port": 8080, "enabled": true}`)
 

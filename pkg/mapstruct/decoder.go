@@ -58,15 +58,30 @@ func (d *Decoder) Decode(input map[string]any, target interface{}) error {
 	if targetValue.Kind() != reflect.Ptr {
 		return fmt.Errorf("target must be a pointer")
 	}
-
-	targetValue = targetValue.Elem()
-	targetType := targetValue.Type()
-
-	if targetType.Kind() != reflect.Struct {
-		return fmt.Errorf("target must be a struct")
+	if targetValue.IsNil() {
+		return fmt.Errorf("target must be a non-nil pointer")
 	}
 
+	targetValue = d.resolveToStructValue(targetValue)
+	if !targetValue.IsValid() || targetValue.Kind() != reflect.Struct {
+		return fmt.Errorf("target must resolve to a struct via pointer(s)")
+	}
+
+	targetType := targetValue.Type()
 	return d.decodeStruct(input, targetValue, targetType)
+}
+
+func (d *Decoder) resolveToStructValue(v reflect.Value) reflect.Value {
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			if !v.CanSet() {
+				return reflect.Value{}
+			}
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+	return v
 }
 
 // decodeStruct 解码结构体
@@ -193,6 +208,11 @@ func (d *Decoder) decodeField(inputValue any, targetValue reflect.Value) error {
 		return d.decodeToArray(inputValue, targetValue, targetType)
 	}
 
+	// 处理 map 类型
+	if targetType.Kind() == reflect.Map {
+		return d.decodeToMap(inputValue, targetValue, targetType)
+	}
+
 	// 处理结构体类型
 	if targetType.Kind() == reflect.Struct {
 		// 特殊处理 time.Time
@@ -265,6 +285,33 @@ func (d *Decoder) decodeToArray(inputValue any, targetValue reflect.Value, targe
 			return fmt.Errorf("failed to decode array element %d: %w", i, err)
 		}
 		targetValue.Index(i).Set(elemValue)
+	}
+
+	return nil
+}
+
+// decodeToMap 解码到 map 类型（当前仅支持 string key）。
+func (d *Decoder) decodeToMap(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
+	inputMap, ok := d.toMap(inputValue)
+	if !ok {
+		return fmt.Errorf("cannot decode %T to map", inputValue)
+	}
+
+	if targetType.Key().Kind() != reflect.String {
+		return fmt.Errorf("unsupported map key type: %s", targetType.Key().Kind())
+	}
+
+	if targetValue.IsNil() {
+		targetValue.Set(reflect.MakeMapWithSize(targetType, len(inputMap)))
+	}
+
+	elemType := targetType.Elem()
+	for key, item := range inputMap {
+		elemValue := reflect.New(elemType).Elem()
+		if err := d.decodeField(item, elemValue); err != nil {
+			return fmt.Errorf("failed to decode map value for key %q: %w", key, err)
+		}
+		targetValue.SetMapIndex(reflect.ValueOf(key), elemValue)
 	}
 
 	return nil
@@ -695,5 +742,33 @@ func (d *Decoder) toSlice(inputValue any) ([]any, bool) {
 			return result, true
 		}
 		return nil, false
+	}
+}
+
+// toMap 将任意值转换为 map[string]any。
+func (d *Decoder) toMap(inputValue any) (map[string]any, bool) {
+	if inputValue == nil {
+		return nil, false
+	}
+
+	switch v := inputValue.(type) {
+	case map[string]any:
+		return v, true
+	default:
+		value := reflect.ValueOf(inputValue)
+		if value.Kind() != reflect.Map {
+			return nil, false
+		}
+
+		result := make(map[string]any, value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			key := iter.Key()
+			if key.Kind() != reflect.String {
+				return nil, false
+			}
+			result[key.String()] = iter.Value().Interface()
+		}
+		return result, true
 	}
 }

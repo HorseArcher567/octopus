@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"os/signal"
-	"syscall"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL 驱动
 
@@ -13,8 +11,7 @@ import (
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/repository"
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/app"
-	"github.com/HorseArcher567/octopus/pkg/config"
-	"github.com/HorseArcher567/octopus/pkg/database"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -165,44 +162,40 @@ func (s *ProductServer) ListProducts(ctx context.Context, req *pb.ListProductsRe
 	}, nil
 }
 
-// AppConfig 应用配置，嵌入框架配置并添加自定义配置
-type AppConfig struct {
-	app.Framework // 嵌入框架配置（logger, etcd, rpcServer, apiServer）
-
-	Database database.Config `yaml:"database"` // 数据库配置
-}
+const mysqlPrimary = "primary"
 
 func main() {
-	// 解析命令行参数
 	configFile := flag.String("config", "config.yaml", "配置文件路径 (默认: config.yaml)")
 	flag.Parse()
 
-	// 1. 定义应用配置（嵌入框架配置）
-	var cfg AppConfig
+	app.MustRun(*configFile, wire)
+}
 
-	// 2. 在外部加载配置
-	config.MustUnmarshal(*configFile, &cfg)
-
-	// 3. 将框架配置部分传给 app.Init
-	app.Init(&cfg.Framework)
-
-	// 4. 初始化数据库连接
-	db, err := initDatabase(&cfg.Database)
+func wire() error {
+	db, err := app.MySQL(mysqlPrimary)
 	if err != nil {
-		app.Logger().Error("failed to initialize database", "error", err)
-		panic("failed to initialize database: " + err.Error())
+		return err
 	}
-	defer db.Close()
+	if err := initDatabase(db); err != nil {
+		return err
+	}
 
-	// 5. 创建 Repository 实例
+	logger := app.Logger()
 	userRepo := repository.NewUserRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	productRepo := repository.NewProductRepository(db)
 
-	// 6. 获取 app logger
-	logger := app.Logger()
+	registerRPC(userRepo, orderRepo, productRepo, logger)
+	registerAPI()
+	return nil
+}
 
-	// 7. 注册多个服务，注入 Repository 和 Logger 依赖
+func registerRPC(
+	userRepo repository.UserRepository,
+	orderRepo repository.OrderRepository,
+	productRepo repository.ProductRepository,
+	logger *xlog.Logger,
+) {
 	app.RegisterRpcServices(func(s *grpc.Server) {
 		pb.RegisterUserServer(s, &UserServer{
 			BaseServer: BaseServer{logger: logger},
@@ -217,8 +210,9 @@ func main() {
 			productRepo: productRepo,
 		})
 	})
+}
 
-	// 注册一个简单的 HTTP Hello API
+func registerAPI() {
 	app.RegisterApiRoutes(func(engine *api.Engine) {
 		engine.GET("/hello", func(c *gin.Context) {
 			c.JSON(200, gin.H{
@@ -226,13 +220,4 @@ func main() {
 			})
 		})
 	})
-
-	// 运行（信号处理在这里）
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-
-	if err := app.Run(ctx); err != nil {
-		app.Logger().Error("app exited with error", "error", err)
-	}
-	app.Stop()
 }
