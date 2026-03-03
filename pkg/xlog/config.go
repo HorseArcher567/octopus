@@ -1,20 +1,30 @@
+// Package xlog wraps slog with:
+//   - context propagation helpers
+//   - explicit logger ownership and Close lifecycle
+//   - optional daily file rotation
 package xlog
 
-// Config 日志配置
+// Config controls logger construction behavior.
 type Config struct {
-	// Level 日志级别：debug/info/warn/error（默认 info）
+	// Level is the minimum enabled level. Supported values: debug/info/warn/error.
+	// Empty means info.
 	Level string `yaml:"level" json:"level" toml:"level"`
 
-	// Format 日志格式：json/text（默认 text）
+	// Format is the output encoder. Supported values: text/json.
+	// Empty means text.
 	Format string `yaml:"format" json:"format" toml:"format"`
 
-	// AddSource 是否添加源码位置（文件名、行号）
+	// AddSource includes source location fields in each record.
 	AddSource bool `yaml:"addSource" json:"addSource" toml:"addSource"`
 
-	// Output 输出目标：stdout/stderr/文件路径（默认 stdout）
-	// 文件输出自动启用按天轮转
+	// Output selects the sink target:
+	//   - "stdout"
+	//   - "stderr"
+	//   - file path (enables daily rotation)
+	// Empty means stdout.
 	Output string `yaml:"output" json:"output" toml:"output"`
 
-	// MaxAge 日志保留天数（仅文件输出有效），0 表示不删除
+	// MaxAge is the retention window in days for rotated files.
+	// It is ignored for stdout/stderr sinks. Zero disables deletion.
 	MaxAge int `yaml:"maxAge" json:"maxAge" toml:"maxAge"`
 }

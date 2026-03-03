@@ -1,35 +1,18 @@
-# Multi-Service Demo 客户端配置文件
-# 日志配置
 logger:
-  level: debug          # 日志级别: debug/info/warn/error (默认: info)
-  format: text          # 日志格式: json/text (默认: text)
-  addSource: true      # 是否添加源码位置 (文件名、行号)
-  output: ./logs/client.log        # 输出目标: stdout/stderr/文件路径 (默认: stdout)
-  maxAge: 7            # 日志保留天数 (仅文件输出有效), 0 表示不删除
+  level: info
+  format: text
+  output: stdout
 
-# Job 配置（用于执行测试任务）
-job:
-  enabled: true         # 是否启用 Job 功能
-  concurrentLimit: 0    # 并发任务数限制，0 表示无限制
-
-# etcd 配置
 etcd:
-  endpoints:            # etcd 节点地址列表
-    - localhost:2379
-    - localhost:2381
-    - localhost:2383
-  dialTimeout: 5s       # 连接超时时间 (默认 5s)
-  autoSyncInterval: 60s # 自动同步集群成员间隔 (默认 60s)
-  leaseTTL: 60          # 租约时间 (秒，默认 60)
-  username: "root"       # etcd 用户名 (可选)
-  password: "123456"       # etcd 密码 (可选)
+  endpoints:
+    - ${ETCD_ENDPOINT:localhost:2379}
+  dialTimeout: 5s
+  username: ${ETCD_USERNAME:root}
+  password: ${ETCD_PASSWORD:123456}
 
-# RPC 客户端选项配置
 rpcClientOptions:
   loadBalancingPolicy: round_robin
-
   keepalive:
-    time: 30s                       # 客户端多久没活动就 ping 服务端
-    timeout: 10s                    # ping 后等待响应的超时（建议至少 10s，避免网络延迟导致超时）
-    permitWithoutStream: true       # 是否允许无活跃流时也发送 ping
-
+    time: 30s
+    timeout: 10s
+    permitWithoutStream: true

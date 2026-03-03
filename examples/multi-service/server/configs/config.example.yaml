@@ -1,0 +1,35 @@
+logger:
+  level: info
+  format: json
+  output: stdout
+
+etcd:
+  endpoints:
+    - ${ETCD_ENDPOINT:localhost:2379}
+  dialTimeout: 5s
+  username: ${ETCD_USERNAME:root}
+  password: ${ETCD_PASSWORD:123456}
+
+rpcServer:
+  name: ${SERVICE_NAME:multi-service-demo}
+  host: ${RPC_HOST:0.0.0.0}
+  port: ${RPC_PORT:9001}
+  enableReflection: false
+  advertiseAddr: ${RPC_ADVERTISE_ADDR:127.0.0.1}
+
+apiServer:
+  name: ${SERVICE_NAME:multi-service-demo}
+  host: ${API_HOST:0.0.0.0}
+  port: ${API_PORT:8090}
+  mode: release
+
+resources:
+  mysql:
+    primary:
+      dsn: "${MYSQL_DSN}"
+      driverName: "mysql"
+  redis:
+    cache:
+      addr: "${REDIS_ADDR:localhost:6379}"
+      password: "${REDIS_PASSWORD:}"
+      db: 0

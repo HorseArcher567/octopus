@@ -7,21 +7,32 @@ import (
 
 type loggerKey struct{}
 
-// FromContext returns the *Logger from context, or a Logger wrapping slog.Default() if not found.
-func FromContext(ctx context.Context) *Logger {
-	if l, ok := ctx.Value(loggerKey{}).(*Logger); ok {
+// Get returns the logger stored in ctx.
+// If none is stored, it returns a wrapper around slog.Default().
+// Get never mutates ctx.
+func Get(ctx context.Context) *Logger {
+	if l, ok := Lookup(ctx); ok {
 		return l
 	}
 	return &Logger{Logger: slog.Default()}
 }
 
-// WithContext stores the *Logger in context.
-func WithContext(ctx context.Context, l *Logger) context.Context {
+// Lookup reports whether ctx contains a logger and returns it when present.
+func Lookup(ctx context.Context) (*Logger, bool) {
+	l, ok := ctx.Value(loggerKey{}).(*Logger)
+	return l, ok
+}
+
+// Put returns a derived context that carries l.
+func Put(ctx context.Context, l *Logger) context.Context {
 	return context.WithValue(ctx, loggerKey{}, l)
 }
 
-// WithAttrs adds attributes to the logger in context and returns a new context.
-func WithAttrs(ctx context.Context, args ...any) context.Context {
-	logger := FromContext(ctx)
-	return WithContext(ctx, &Logger{Logger: logger.With(args...)})
+// GetOr returns the logger in ctx, or fallback when missing.
+// Unlike Get, this function never falls back to slog.Default().
+func GetOr(ctx context.Context, fallback *Logger) *Logger {
+	if l, ok := Lookup(ctx); ok {
+		return l
+	}
+	return fallback
 }

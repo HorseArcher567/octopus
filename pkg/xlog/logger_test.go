@@ -192,3 +192,20 @@ func TestCloseWithNil(t *testing.T) {
 		t.Errorf("Close() on nil Logger should return nil error, got: %v", err)
 	}
 }
+
+func TestXlogWithChain(t *testing.T) {
+	buf := &bytes.Buffer{}
+	base := &Logger{Logger: newTestLogger(t, Config{
+		Level:     "info",
+		Format:    "text",
+		AddSource: false,
+	}, buf)}
+
+	child := base.With("component", "chain").With("version", "1")
+	child.Info("chained")
+
+	out := buf.String()
+	if !strings.Contains(out, "component=chain") || !strings.Contains(out, "version=1") {
+		t.Fatalf("chained attrs missing: %s", out)
+	}
+}

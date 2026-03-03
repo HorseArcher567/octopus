@@ -13,7 +13,7 @@ func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log := xlog.FromContext(c.Request.Context())
+				log := xlog.Get(c.Request.Context())
 				log.Error("panic recovered in http handler", "panic", r)
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{

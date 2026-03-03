@@ -1,10 +1,12 @@
+// Package rotate provides a concurrency-safe, daily rotating file writer.
 package rotate
 
-// Config 日志轮转配置
+// Config controls rotation behavior.
 type Config struct {
-	// Filename 日志文件路径（必填）
+	// Filename is the active log file path.
 	Filename string
 
-	// MaxAge 保留旧日志文件的最大天数，0 表示不删除
+	// MaxAge keeps at most N days of backups.
+	// Zero disables cleanup.
 	MaxAge int
 }

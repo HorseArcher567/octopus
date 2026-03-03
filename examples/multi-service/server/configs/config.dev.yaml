@@ -1,0 +1,52 @@
+logger:
+  level: debug
+  format: text
+  addSource: true
+  output: ./logs/server.log
+  maxAge: 7
+
+etcd:
+  endpoints:
+    - ${ETCD_ENDPOINT:localhost:2379}
+  dialTimeout: 5s
+  username: ${ETCD_USERNAME:root}
+  password: ${ETCD_PASSWORD:123456}
+
+rpcServer:
+  name: multi-service-demo
+  host: 0.0.0.0
+  port: 9001
+  enableReflection: true
+  advertiseAddr: 127.0.0.1
+
+rpcClientOptions:
+  loadBalancingPolicy: round_robin
+
+apiServer:
+  name: multi-service-demo
+  host: 0.0.0.0
+  port: 8090
+  mode: release
+  enablePProf: false
+
+resources:
+  mysql:
+    primary:
+      dsn: "${MYSQL_DSN:root:123456@tcp(localhost:3306)/octopus?charset=utf8mb4&parseTime=True&loc=Local}"
+      driverName: "mysql"
+      maxOpenConns: 100
+      maxIdleConns: 10
+      connMaxLifetime: 3600
+      connMaxIdleTime: 600
+  redis:
+    cache:
+      addr: "${REDIS_ADDR:localhost:6379}"
+      password: "${REDIS_PASSWORD:}"
+      db: 0
+      poolSize: 50
+      minIdleConns: 10
+      dialTimeout: 3s
+      readTimeout: 2s
+      writeTimeout: 2s
+  init:
+    pingTimeout: 3s

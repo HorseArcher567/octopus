@@ -8,11 +8,11 @@ import (
 )
 
 // LoggerInjector injects the given Logger into the Context of each request.
-// Subsequent middlewares and handlers can retrieve the same Logger via xlog.FromContext(c.Request.Context()).
+// Subsequent middlewares and handlers can retrieve the same logger via xlog.Get(c.Request.Context()).
 func LoggerInjector(base *xlog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Put the base logger into the request context.
-		ctx := xlog.WithContext(c.Request.Context(), base)
+		ctx := xlog.Put(c.Request.Context(), base)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
@@ -30,7 +30,7 @@ func Logging() gin.HandlerFunc {
 
 		latency := time.Since(start)
 
-		log := xlog.FromContext(c.Request.Context())
+		log := xlog.Get(c.Request.Context())
 		log.Info("http request",
 			"method", c.Request.Method,
 			"path", c.FullPath(),
