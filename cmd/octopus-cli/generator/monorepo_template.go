@@ -281,7 +281,10 @@ func generateAppMain(appDir string, data AppData) error {
 	tmpl := `package main
 
 import (
+	"context"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"{{.Module}}/internal/logic"
 	"{{.Module}}/internal/server"
@@ -290,6 +293,7 @@ import (
 	"google.golang.org/grpc"
 	"github.com/HorseArcher567/octopus/pkg/config"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
+	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
 func main() {
@@ -304,17 +308,21 @@ func main() {
 	srv := server.NewServer(logic)
 
 	// 4. Create RPC Server
+	logger := xlog.MustNew(nil)
+	defer logger.Close()
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.MustNewServer(&cfg.Server)
+	rpcServer := rpc.MustNewServer(logger, &cfg.Server)
 
 	// 5. Register service
-	rpcServer.RegisterService(func(s *grpc.Server) {
+	rpcServer.RegisterServices(func(s *grpc.Server) {
 		{{.AppName}}.Register{{.AppNameCamel}}ServiceServer(s, srv)
 	})
 
 	// 6. Start server
 	log.Printf("Starting {{.ServiceName}} on :%d", cfg.Server.Port)
-	if err := rpcServer.Start(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := rpcServer.Run(ctx); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

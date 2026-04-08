@@ -19,7 +19,10 @@ func generateMain(projectDir string, data TemplateData) error {
 	tmpl := `package main
 
 import (
+    "context"
     "log"
+    "os/signal"
+    "syscall"
 
     "{{.Module}}/internal/logic"
     "{{.Module}}/internal/server"
@@ -28,6 +31,7 @@ import (
     "google.golang.org/grpc"
     "github.com/HorseArcher567/octopus/pkg/config"
     "github.com/HorseArcher567/octopus/pkg/rpc"
+    "github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
 func main() {
@@ -41,22 +45,26 @@ func main() {
 	// 3. 创建 Server
 	srv := server.NewServer(logic)
 
-	// 4. 创建 RPC Server（直接使用配置）
+	// 4. 创建 RPC Server
+	logger := xlog.MustNew(nil)
+	defer logger.Close()
 	cfg.Server.EnableReflection = cfg.Mode == "dev"
-	rpcServer := rpc.MustNewServer(&cfg.Server)
+	rpcServer := rpc.MustNewServer(logger, &cfg.Server)
 
 	// 5. 注册服务（支持注册多个服务）
-	rpcServer.RegisterService(func(s *grpc.Server) {
+	rpcServer.RegisterServices(func(s *grpc.Server) {
 		pb.Register{{.ServiceNameCamel}}Server(s, srv)
 	})
-	
+
 	// 如果有多个服务，可以继续注册：
-	// rpcServer.RegisterService(func(s *grpc.Server) {
+	// rpcServer.RegisterServices(func(s *grpc.Server) {
 	//     pb.RegisterAnotherServiceServer(s, anotherSrv)
-	// }, "AnotherService") // 可选：指定服务名用于健康检查
+	// })
 
 	// 6. 启动服务
-	if err := rpcServer.Start(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := rpcServer.Run(ctx); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

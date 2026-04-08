@@ -2,21 +2,21 @@ package app
 
 import (
 	"errors"
-	"fmt"
-	"strings"
-	"time"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/database"
 	"github.com/HorseArcher567/octopus/pkg/job"
 	redisclient "github.com/HorseArcher567/octopus/pkg/redis"
-	"github.com/HorseArcher567/octopus/pkg/rpc"
-	"github.com/HorseArcher567/octopus/pkg/rpc/resolver"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 )
 
-var _ Runtime = (*App)(nil)
+var (
+	_ BuildContext  = (*buildContext)(nil)
+	_ RPCRegistrar  = (*rpcRegistrar)(nil)
+	_ HTTPRegistrar = (*httpRegistrar)(nil)
+	_ JobRegistrar  = (*jobRegistrar)(nil)
+)
 
 func (a *App) Logger() *xlog.Logger {
 	return a.log
@@ -24,104 +24,152 @@ func (a *App) Logger() *xlog.Logger {
 
 func (a *App) MySQL(name string) (*database.DB, error) {
 	if a.resources == nil {
-		return nil, errors.New("app: resources are not initialized (check resources config)")
+		return nil, errors.New("app: resource runtime is not initialized")
 	}
 	return a.resources.MySQL(name)
 }
 
 func (a *App) Redis(name string) (*redisclient.Client, error) {
 	if a.resources == nil {
-		return nil, errors.New("app: resources are not initialized (check resources config)")
+		return nil, errors.New("app: resource runtime is not initialized")
 	}
 	return a.resources.Redis(name)
 }
 
-func (a *App) RegisterRPC(register func(s *grpc.Server)) {
-	if a.rpcServer == nil {
-		panic("app: rpc server is not initialized (check rpcServer config)")
+func (a *App) RPCClient(target string) (*grpc.ClientConn, error) {
+	if a.rpc == nil {
+		return nil, errors.New("app: rpc runtime is not initialized")
 	}
-	if register != nil {
-		a.rpcServer.RegisterServices(register)
-	}
+	return a.rpc.Client(target)
 }
 
-func (a *App) RegisterHTTP(register func(engine *api.Engine)) {
-	if a.apiServer == nil {
-		panic("app: api server is not initialized (check apiServer config)")
-	}
-	if register != nil {
-		register(a.apiServer.Engine())
-	}
-}
-
-func (a *App) AddJob(name string, fn job.Func) {
-	a.jobScheduler.AddJob(&job.Job{Name: name, Func: fn})
-}
-
-// NewRPCClient returns a new gRPC client connection for the given target.
+// NewRPCClient keeps the old public name for direct callers.
 func (a *App) NewRPCClient(target string) (*grpc.ClientConn, error) {
-	a.rpcCliMu.Lock()
-	if conn, ok := a.rpcClients[target]; ok {
-		a.rpcCliMu.Unlock()
-		a.log.Debug("reuse rpc client connection", "target", target)
-		return conn, nil
-	}
-	a.rpcCliMu.Unlock()
-
-	dialOpts := append([]grpc.DialOption{}, a.rpcCliOptions...)
-
-	switch {
-	case strings.HasPrefix(target, "etcd:///"):
-		if a.etcdClient == nil {
-			return nil, fmt.Errorf("etcd client is not configured for target %q", target)
-		}
-		etcdBuilder := resolver.NewEtcdBuilder(a.log, a.etcdClient)
-		dialOpts = append(dialOpts, grpc.WithResolvers(etcdBuilder))
-	case strings.HasPrefix(target, "direct:///"):
-		directBuilder := resolver.NewDirectBuilder(a.log)
-		dialOpts = append(dialOpts, grpc.WithResolvers(directBuilder))
-	}
-
-	conn, err := rpc.NewClient(target, dialOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	a.rpcCliMu.Lock()
-	if existing, ok := a.rpcClients[target]; ok {
-		a.rpcCliMu.Unlock()
-		_ = conn.Close()
-		a.log.Debug("reuse rpc client connection after race", "target", target)
-		return existing, nil
-	}
-	a.rpcClients[target] = conn
-	a.rpcCliMu.Unlock()
-	a.log.Info("created rpc client connection", "target", target)
-
-	return conn, nil
+	return a.RPCClient(target)
 }
 
 func (a *App) CloseRpcClients() {
-	start := time.Now()
-	a.rpcCliMu.Lock()
-	clients := a.rpcClients
-	a.rpcClients = make(map[string]*grpc.ClientConn)
-	a.rpcCliMu.Unlock()
-
-	if len(clients) == 0 {
-		a.log.Debug("no rpc clients to close")
+	if a.rpc == nil {
 		return
 	}
+	if err := a.rpc.CloseClients(); err != nil {
+		a.log.Error("failed to close rpc clients", "error", err)
+	}
+}
 
-	var errs []error
-	for target, conn := range clients {
-		if err := conn.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close rpc client %q: %w", target, err))
-		}
+type buildContext struct {
+	a *App
+}
+
+func newBuildContext(a *App) BuildContext {
+	return &buildContext{a: a}
+}
+
+func (c *buildContext) Logger() *xlog.Logger {
+	return c.a.Logger()
+}
+
+func (c *buildContext) MySQL(name string) (*database.DB, error) {
+	return c.a.MySQL(name)
+}
+
+func (c *buildContext) Redis(name string) (*redisclient.Client, error) {
+	return c.a.Redis(name)
+}
+
+func (c *buildContext) RPCClient(target string) (*grpc.ClientConn, error) {
+	return c.a.RPCClient(target)
+}
+
+func (c *buildContext) Provide(value any) error {
+	return c.a.container.Provide(value)
+}
+
+func (c *buildContext) Resolve(target any) error {
+	return c.a.container.Resolve(target)
+}
+
+func (c *buildContext) MustResolve(target any) {
+	c.a.container.MustResolve(target)
+}
+
+type rpcRegistrar struct {
+	a *App
+}
+
+func newRPCRegistrar(a *App) RPCRegistrar {
+	return &rpcRegistrar{a: a}
+}
+
+func (r *rpcRegistrar) Logger() *xlog.Logger {
+	return r.a.Logger()
+}
+
+func (r *rpcRegistrar) Resolve(target any) error {
+	return r.a.container.Resolve(target)
+}
+
+func (r *rpcRegistrar) MustResolve(target any) {
+	r.a.container.MustResolve(target)
+}
+
+func (r *rpcRegistrar) RegisterRPC(register func(s *grpc.Server)) error {
+	if r.a.rpc == nil {
+		return errors.New("app: rpc runtime is not initialized")
 	}
-	if len(errs) > 0 {
-		a.log.Error("failed to close some rpc clients", "error", errors.Join(errs...))
-		return
+	return r.a.rpc.Register(register)
+}
+
+type httpRegistrar struct {
+	a *App
+}
+
+func newHTTPRegistrar(a *App) HTTPRegistrar {
+	return &httpRegistrar{a: a}
+}
+
+func (r *httpRegistrar) Logger() *xlog.Logger {
+	return r.a.Logger()
+}
+
+func (r *httpRegistrar) Resolve(target any) error {
+	return r.a.container.Resolve(target)
+}
+
+func (r *httpRegistrar) MustResolve(target any) {
+	r.a.container.MustResolve(target)
+}
+
+func (r *httpRegistrar) RegisterHTTP(register func(engine *api.Engine)) error {
+	if r.a.http == nil {
+		return errors.New("app: http runtime is not initialized")
 	}
-	a.log.Info("closed rpc clients", "count", len(clients), "duration", time.Since(start))
+	return r.a.http.Register(register)
+}
+
+type jobRegistrar struct {
+	a *App
+}
+
+func newJobRegistrar(a *App) JobRegistrar {
+	return &jobRegistrar{a: a}
+}
+
+func (r *jobRegistrar) Logger() *xlog.Logger {
+	return r.a.Logger()
+}
+
+func (r *jobRegistrar) Resolve(target any) error {
+	return r.a.container.Resolve(target)
+}
+
+func (r *jobRegistrar) MustResolve(target any) {
+	r.a.container.MustResolve(target)
+}
+
+func (r *jobRegistrar) AddJob(name string, fn job.Func) error {
+	if r.a.jobs == nil {
+		return errors.New("app: job runtime is not initialized")
+	}
+	return r.a.jobs.Add(name, fn)
 }

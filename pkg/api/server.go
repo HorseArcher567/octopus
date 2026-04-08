@@ -72,6 +72,14 @@ func (s *Server) Engine() *Engine {
 	return s.engine
 }
 
+// Register applies route registration to the underlying engine.
+func (s *Server) Register(register func(*Engine)) error {
+	if register != nil {
+		register(s.engine)
+	}
+	return nil
+}
+
 // Run starts the HTTP server and blocks until ctx is cancelled or server errors.
 // Note: Run does NOT call Stop; Stop is called by App uniformly.
 func (s *Server) Run(ctx context.Context) error {

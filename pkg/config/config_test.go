@@ -118,6 +118,34 @@ func TestConfig_UnmarshalKey(t *testing.T) {
 	}
 }
 
+func TestConfig_UnmarshalStrict(t *testing.T) {
+	type StrictConfig struct {
+		Port int `yaml:"port"`
+	}
+
+	cfg := New()
+	cfg.Set("port", "not-an-int")
+
+	var target StrictConfig
+	if err := cfg.UnmarshalStrict(&target); err == nil {
+		t.Fatal("expected strict unmarshal to fail on mismatched field type")
+	}
+}
+
+func TestConfig_UnmarshalKeyStrict(t *testing.T) {
+	type StrictConfig struct {
+		Port int `yaml:"port"`
+	}
+
+	cfg := New()
+	cfg.Set("server.port", "not-an-int")
+
+	var target StrictConfig
+	if err := cfg.UnmarshalKeyStrict("server", &target); err == nil {
+		t.Fatal("expected strict unmarshal key to fail on mismatched field type")
+	}
+}
+
 func TestConfig_UnmarshalKey_MapStringStruct(t *testing.T) {
 	type DB struct {
 		DSN string `yaml:"dsn"`

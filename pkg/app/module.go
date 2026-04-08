@@ -11,28 +11,84 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Module defines a business module lifecycle.
-// Init runs during startup. Close runs during shutdown in reverse order.
+// Module is the minimal unit managed by App.
 type Module interface {
 	ID() string
-	Init(ctx context.Context, rt Runtime) error
-	Close(ctx context.Context) error
 }
 
-// DependedModule optionally declares module dependencies by module ID.
-type DependedModule interface {
+// DependentModule optionally declares module dependencies by module ID.
+type DependentModule interface {
 	DependsOn() []string
 }
 
-// Runtime exposes framework capabilities to modules.
-// It is the single interaction boundary between modules and the app runtime.
-type Runtime interface {
+// BuildModule participates in dependency construction.
+type BuildModule interface {
+	Build(ctx context.Context, b BuildContext) error
+}
+
+// CloseModule owns explicit cleanup.
+type CloseModule interface {
+	Close(ctx context.Context) error
+}
+
+// RegisterRPCModule participates in RPC registration.
+type RegisterRPCModule interface {
+	RegisterRPC(ctx context.Context, r RPCRegistrar) error
+}
+
+// RegisterHTTPModule participates in HTTP route registration.
+type RegisterHTTPModule interface {
+	RegisterHTTP(ctx context.Context, r HTTPRegistrar) error
+}
+
+// RegisterJobsModule participates in background job registration.
+type RegisterJobsModule interface {
+	RegisterJobs(ctx context.Context, r JobRegistrar) error
+}
+
+// RunModule owns a long-running loop managed by App.
+type RunModule interface {
+	Run(ctx context.Context) error
+}
+
+// Resolver exposes read-only dependency lookup.
+type Resolver interface {
+	Resolve(target any) error
+	MustResolve(target any)
+}
+
+// Container exposes dependency publication during build.
+type Container interface {
+	Resolver
+	Provide(value any) error
+}
+
+// BuildContext exposes host capabilities needed during dependency construction.
+type BuildContext interface {
 	Logger() *xlog.Logger
 	MySQL(name string) (*database.DB, error)
 	Redis(name string) (*redisclient.Client, error)
-	NewRPCClient(target string) (*grpc.ClientConn, error)
+	RPCClient(target string) (*grpc.ClientConn, error)
+	Container
+}
 
-	RegisterRPC(register func(s *grpc.Server))
-	RegisterHTTP(register func(engine *api.Engine))
-	AddJob(name string, fn job.Func)
+// RPCRegistrar exposes RPC service registration.
+type RPCRegistrar interface {
+	Logger() *xlog.Logger
+	Resolver
+	RegisterRPC(register func(s *grpc.Server)) error
+}
+
+// HTTPRegistrar exposes HTTP route registration.
+type HTTPRegistrar interface {
+	Logger() *xlog.Logger
+	Resolver
+	RegisterHTTP(register func(engine *api.Engine)) error
+}
+
+// JobRegistrar exposes background job registration.
+type JobRegistrar interface {
+	Logger() *xlog.Logger
+	Resolver
+	AddJob(name string, fn job.Func) error
 }

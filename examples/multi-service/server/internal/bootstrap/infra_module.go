@@ -10,9 +10,6 @@ import (
 const mysqlPrimary = "primary"
 
 type InfraModule struct {
-	userRepo    repository.UserRepository
-	orderRepo   repository.OrderRepository
-	productRepo repository.ProductRepository
 }
 
 func NewInfraModule() *InfraModule {
@@ -21,30 +18,17 @@ func NewInfraModule() *InfraModule {
 
 func (m *InfraModule) ID() string { return "infra" }
 
-func (m *InfraModule) Init(_ context.Context, rt app.Runtime) error {
-	db, err := rt.MySQL(mysqlPrimary)
+func (m *InfraModule) Build(_ context.Context, b app.BuildContext) error {
+	db, err := b.MySQL(mysqlPrimary)
 	if err != nil {
 		return err
 	}
 
-	m.userRepo = repository.NewUserRepository(db)
-	m.orderRepo = repository.NewOrderRepository(db)
-	m.productRepo = repository.NewProductRepository(db)
-	return nil
-}
-
-func (m *InfraModule) Close(_ context.Context) error {
-	return nil
-}
-
-func (m *InfraModule) UserRepo() repository.UserRepository {
-	return m.userRepo
-}
-
-func (m *InfraModule) OrderRepo() repository.OrderRepository {
-	return m.orderRepo
-}
-
-func (m *InfraModule) ProductRepo() repository.ProductRepository {
-	return m.productRepo
+	if err := b.Provide(repository.NewUserRepository(db)); err != nil {
+		return err
+	}
+	if err := b.Provide(repository.NewOrderRepository(db)); err != nil {
+		return err
+	}
+	return b.Provide(repository.NewProductRepository(db))
 }

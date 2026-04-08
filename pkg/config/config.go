@@ -290,6 +290,15 @@ func (c *Config) Unmarshal(target interface{}) error {
 	return decoder.Decode(c.data, target)
 }
 
+// UnmarshalStrict decodes the entire config into target using strict field decoding.
+func (c *Config) UnmarshalStrict(target interface{}) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	decoder := mapstruct.New().WithStrictMode(true)
+	return decoder.Decode(c.data, target)
+}
+
 // UnmarshalKey 将指定key的配置解码到结构体
 func (c *Config) UnmarshalKey(key string, target interface{}) error {
 	val, ok := c.Get(key)
@@ -303,6 +312,25 @@ func (c *Config) UnmarshalKey(key string, target interface{}) error {
 	}
 
 	decoder := mapstruct.New()
+	if err := decoder.Decode(dataMap, target); err != nil {
+		return fmt.Errorf("failed to unmarshal config key '%s': %w", key, err)
+	}
+	return nil
+}
+
+// UnmarshalKeyStrict decodes a config subtree with strict field decoding.
+func (c *Config) UnmarshalKeyStrict(key string, target interface{}) error {
+	val, ok := c.Get(key)
+	if !ok {
+		return fmt.Errorf("config key '%s' not found", key)
+	}
+
+	dataMap, ok := val.(map[string]any)
+	if !ok {
+		return fmt.Errorf("config key '%s' cannot be unmarshaled to struct (type: %T, expected: map/object)", key, val)
+	}
+
+	decoder := mapstruct.New().WithStrictMode(true)
 	if err := decoder.Decode(dataMap, target); err != nil {
 		return fmt.Errorf("failed to unmarshal config key '%s': %w", key, err)
 	}

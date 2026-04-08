@@ -12,10 +12,11 @@ go run . -config config.yaml \
 
 - `-config`: client config path
 - `-target`: gRPC target (`etcd:///service-name` or `host:port`)
-- `-api`: HTTP API endpoint for health check
+- `-api`: HTTP API base URL or `/hello` endpoint
 
 ## What It Does
 
-1. Build gRPC client from config
-2. Call `CreateUser`, `GetUser`, `CreateOrder`, `ListProducts`
-3. Call HTTP `/hello` endpoint
+1. Build an Octopus app runtime from config
+2. Call gRPC `CreateUser`, `GetUser`, `CreateOrder`, `ListProducts`
+3. Call HTTP `/hello`
+4. Call HTTP `POST /users`, `GET /users/:id`, `POST /orders`, `GET /products`

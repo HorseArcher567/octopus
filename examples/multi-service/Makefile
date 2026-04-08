@@ -1,4 +1,4 @@
-.PHONY: proto build-server build-client run-server run-client test clean
+.PHONY: proto build-server build-client run-server run-client test test-e2e clean
 
 # 生成 Proto 代码
 proto:
@@ -11,7 +11,7 @@ proto:
 # 构建服务器
 build-server: proto
 	@echo "Building server..."
-	@go build -o bin/server server/main.go
+	@go build -o bin/server ./server/cmd/server
 	@echo "✅ Server built: bin/server"
 
 # 构建客户端
@@ -26,23 +26,22 @@ build: build-server build-client
 # 运行服务器
 run-server: proto
 	@echo "Starting multi-service server..."
-	@go run server/main.go
+	@go run ./server/cmd/server -config server/configs/config.dev.yaml
 
 # 运行客户端
 run-client: proto
 	@echo "Running client tests..."
-	@go run client/main.go
+	@go run ./client -config client/config.yaml
 
-# 测试（启动服务器并运行客户端测试）
+# 测试
 test:
-	@echo "Running integration test..."
-	@go run server/main.go & \
-	SERVER_PID=$$!; \
-	sleep 2; \
-	go run client/main.go; \
-	TEST_RESULT=$$?; \
-	kill $$SERVER_PID; \
-	exit $$TEST_RESULT
+	@echo "Running unit and integration tests..."
+	@GOCACHE=/tmp/go-build go test ./...
+
+test-e2e:
+	@echo "Running e2e test..."
+	@echo "Requires OCTOPUS_TEST_MYSQL_DSN to point to an existing MySQL database."
+	@GOCACHE=/tmp/go-build go test ./server/tests/e2e -v
 
 # 清理
 clean:
@@ -56,13 +55,13 @@ grpcurl-list:
 
 grpcurl-user:
 	@echo "Testing UserService.GetUser..."
-	@grpcurl -plaintext -d '{"user_id": 1001}' localhost:9000 multi.UserService/GetUser
+	@grpcurl -plaintext -d '{"user_id": 1001}' localhost:9001 multi.User/GetUser
 
 grpcurl-order:
 	@echo "Testing OrderService.GetOrder..."
-	@grpcurl -plaintext -d '{"order_id": 2001}' localhost:9000 multi.OrderService/GetOrder
+	@grpcurl -plaintext -d '{"order_id": 2001}' localhost:9001 multi.Order/GetOrder
 
 grpcurl-product:
 	@echo "Testing ProductService.GetProduct..."
-	@grpcurl -plaintext -d '{"product_id": 1}' localhost:9000 multi.ProductService/GetProduct
+	@grpcurl -plaintext -d '{"product_id": 1}' localhost:9001 multi.Product/GetProduct
 

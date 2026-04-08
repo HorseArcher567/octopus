@@ -1,10 +1,59 @@
 # Octopus
 
-Octopus 是一个面向 Go 服务的轻量框架，聚焦三件事：
+Octopus 是一个面向 Go 服务的轻量运行时框架，聚焦三件事：
 
 - 统一应用生命周期（RPC / HTTP / Job）
 - etcd 服务发现与 gRPC 客户端接入
-- 可组合的模块化启动方式（`Module + Runtime`）
+- 可组合的模块化启动方式（phase-based `Module`）
+
+## 设计哲学
+
+**框架负责编排，模块负责业务，让边界清晰、依赖显式、生命周期自然。**
+
+这句话对应四条实现约束：
+
+- `App` 负责编排启动顺序、关闭顺序和共享运行时能力
+- 模块只表达自己的业务构建、服务注册和运行逻辑
+- 每个阶段只暴露当下需要的能力，避免给模块一个过宽的入口
+- 依赖关系通过接口和显式装配流动，而不是通过模块之间直接耦合
+
+### V2 层次图
+
+```mermaid
+flowchart TD
+    AppKernel[AppKernel]
+    ModuleGraph[ModuleGraph]
+    LifecycleRunner[LifecycleRunner]
+    RuntimeServices[RuntimeServices]
+    RpcRuntime[RpcRuntime]
+    HttpRuntime[HttpRuntime]
+    JobRuntime[JobRuntime]
+    ResourceRuntime[ResourceRuntime]
+    BuildPhase[BuildPhase]
+    RegisterPhase[RegisterPhase]
+    RunPhase[RunPhase]
+    RpcClientFactory[RpcClientFactory]
+    ServiceDiscovery[ServiceDiscovery]
+
+    AppKernel --> ModuleGraph
+    AppKernel --> LifecycleRunner
+    AppKernel --> RuntimeServices
+    RuntimeServices --> RpcRuntime
+    RuntimeServices --> HttpRuntime
+    RuntimeServices --> JobRuntime
+    RuntimeServices --> ResourceRuntime
+    ModuleGraph --> BuildPhase
+    ModuleGraph --> RegisterPhase
+    ModuleGraph --> RunPhase
+    RpcRuntime --> RpcClientFactory
+    RpcRuntime --> ServiceDiscovery
+```
+
+这张图表达的是 V2 的核心边界：
+
+- `pkg/app` 更像一个 `AppKernel`，负责模块图和生命周期编排
+- 具体的 RPC / HTTP / Job / Resource 能力由独立 `Runtime` 提供
+- `RpcRuntime` 内部再拆分出 client factory 和 service discovery，而不是让 `App` 自己处理这些细节
 
 ## 安装
 
@@ -32,34 +81,55 @@ go run ./examples/multi-service/client \
   -api http://127.0.0.1:8090/hello
 ```
 
+### 3. 运行最小示例
+
+```bash
+cd examples/hello-module
+go run . -config config.yaml
+```
+
 ## 核心抽象
 
 ```go
 type Module interface {
     ID() string
-    Init(ctx context.Context, rt Runtime) error
-    Close(ctx context.Context) error
 }
 
-type DependedModule interface {
+type DependentModule interface {
     DependsOn() []string
+}
+
+type BuildModule interface {
+    Build(ctx context.Context, b BuildContext) error
+}
+
+type RegisterRPCModule interface {
+    RegisterRPC(ctx context.Context, r RPCRegistrar) error
+}
+
+type RegisterHTTPModule interface {
+    RegisterHTTP(ctx context.Context, r HTTPRegistrar) error
+}
+
+type CloseModule interface {
+    Close(ctx context.Context) error
 }
 ```
 
 - `ID`: 模块唯一标识
-- `Init`: 启动阶段初始化（按依赖拓扑顺序）
-- `Close`: 关闭阶段回收（逆序执行）
 - `DependsOn`: 可选依赖声明
+- `Build`: 构建依赖与装配业务对象
+- `RegisterRPC` / `RegisterHTTP`: 注册对外入口
+- `Close`: 关闭阶段回收（逆序执行）
 
-## Runtime 能力
+## Phase 能力
 
-模块通过 `Runtime` 获取受限能力，不直接依赖 `*App`：
+模块按阶段获取受限能力，不直接依赖 `*App`：
 
-- `Logger()`
-- `MySQL(name)` / `Redis(name)`
-- `RegisterRPC(...)` / `RegisterHTTP(...)`
-- `AddJob(...)`
-- `NewRPCClient(target)`
+- `BuildContext`: `Logger()` / `MySQL(name)` / `Redis(name)` / `RPCClient(target)` / `Container`
+- `RPCRegistrar`: `Logger()` / `Resolver` / `RegisterRPC(...)`
+- `HTTPRegistrar`: `Logger()` / `Resolver` / `RegisterHTTP(...)`
+- `JobRegistrar`: `Logger()` / `Resolver` / `AddJob(...)`
 
 ### RPC 客户端复用
 
@@ -71,19 +141,23 @@ type DependedModule interface {
 ## 应用入口示例
 
 ```go
-infra := bootstrap.NewInfraModule()
 app.MustRun(configFile, []app.Module{
-    infra,
-    bootstrap.NewRPCModule(infra),
+    bootstrap.NewInfraModule(),
+    bootstrap.NewServiceModule(),
+    bootstrap.NewRPCModule(),
     bootstrap.NewAPIModule(),
 })
 ```
 
 其中：
 
-- `infra` 模块初始化数据库和仓储
-- `rpc` 模块依赖 `infra`，注册 gRPC 服务
+- `infra` 模块初始化数据库并构建仓储
+- `service` 模块消费仓储并构建业务服务
+- `rpc` 模块消费服务并注册 gRPC 服务
 - `api` 模块注册 HTTP 路由
+
+`examples/multi-service` 展示的是“一个进程内承载多个业务服务”的参考实现；
+如果你想先理解最小心智模型，优先看 `examples/hello-module`。
 
 ## 项目结构
 
@@ -97,6 +171,7 @@ octopus/
 │   ├── config/     # 配置加载
 │   └── xlog/       # 日志
 ├── examples/
+│   ├── hello-module/
 │   └── multi-service/
 │       ├── server/
 │       └── client/

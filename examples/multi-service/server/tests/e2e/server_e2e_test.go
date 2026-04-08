@@ -1,12 +1,18 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,17 +32,21 @@ func TestServerE2E(t *testing.T) {
 	rpcPort := freePort(t)
 	apiPort := freePort(t)
 	cfgPath := writeConfig(t, dsn, rpcPort, apiPort)
+	prepareSchema(t, dsn)
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 
-	a := app.New(cfg)
-	infra := bootstrap.NewInfraModule()
+	a, err := app.FromConfig(cfg)
+	if err != nil {
+		t.Fatalf("build app: %v", err)
+	}
 	a.Use(
-		infra,
-		bootstrap.NewRPCModule(infra),
+		bootstrap.NewInfraModule(),
+		bootstrap.NewServiceModule(),
+		bootstrap.NewRPCModule(),
 		bootstrap.NewAPIModule(),
 	)
 
@@ -80,6 +90,60 @@ func TestServerE2E(t *testing.T) {
 
 	if _, err := productClient.ListProducts(testCtx, &pb.ListProductsRequest{Page: 1, PageSize: 10}); err != nil {
 		t.Fatalf("ListProducts failed: %v", err)
+	}
+
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+
+	httpCreateUserResp := struct {
+		UserID int64 `json:"user_id"`
+	}{}
+	if err := doJSON(httpClient, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/users", apiPort), map[string]any{
+		"username": "http_user",
+		"email":    "http_user@example.com",
+	}, &httpCreateUserResp); err != nil {
+		t.Fatalf("http CreateUser failed: %v", err)
+	}
+	if httpCreateUserResp.UserID == 0 {
+		t.Fatal("expected http CreateUser to return user id")
+	}
+
+	if err := doJSON(httpClient, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/users/%d", apiPort, httpCreateUserResp.UserID), nil, &struct {
+		UserID int64 `json:"user_id"`
+	}{}); err != nil {
+		t.Fatalf("http GetUser failed: %v", err)
+	}
+
+	httpCreateOrderResp := struct {
+		OrderID int64 `json:"order_id"`
+	}{}
+	if err := doJSON(httpClient, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/orders", apiPort), map[string]any{
+		"user_id":      httpCreateUserResp.UserID,
+		"product_name": "http-product",
+		"amount":       28.8,
+	}, &httpCreateOrderResp); err != nil {
+		t.Fatalf("http CreateOrder failed: %v", err)
+	}
+	if httpCreateOrderResp.OrderID == 0 {
+		t.Fatal("expected http CreateOrder to return order id")
+	}
+
+	if err := doJSON(httpClient, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/orders/%d", apiPort, httpCreateOrderResp.OrderID), nil, &struct {
+		OrderID int64 `json:"order_id"`
+	}{}); err != nil {
+		t.Fatalf("http GetOrder failed: %v", err)
+	}
+
+	httpProductsResp := struct {
+		Products []struct {
+			ProductID int64 `json:"product_id"`
+		} `json:"products"`
+		Total int32 `json:"total"`
+	}{}
+	if err := doJSON(httpClient, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/products?page=1&page_size=10", apiPort), nil, &httpProductsResp); err != nil {
+		t.Fatalf("http ListProducts failed: %v", err)
+	}
+	if httpProductsResp.Total == 0 {
+		t.Fatal("expected http ListProducts to return products")
 	}
 
 	cancel()
@@ -153,4 +217,86 @@ func waitHTTPReady(port int, timeout time.Duration) error {
 		time.Sleep(150 * time.Millisecond)
 	}
 	return fmt.Errorf("timeout waiting for %s", url)
+}
+
+func doJSON(client *http.Client, method, url string, body any, target any) error {
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(payload))
+	}
+	if target == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+func prepareSchema(t *testing.T, dsn string) {
+	t.Helper()
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("ping mysql: %v", err)
+	}
+
+	schemaPath := schemaFilePath(t)
+	payload, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+
+	for _, stmt := range splitSQLStatements(string(payload)) {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("exec schema statement %q: %v", stmt, err)
+		}
+	}
+}
+
+func schemaFilePath(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current file path")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "schema.sql")
+}
+
+func splitSQLStatements(payload string) []string {
+	parts := strings.Split(payload, ";")
+	statements := make([]string, 0, len(parts))
+	for _, part := range parts {
+		stmt := strings.TrimSpace(part)
+		if stmt == "" {
+			continue
+		}
+		statements = append(statements, stmt)
+	}
+	return statements
 }

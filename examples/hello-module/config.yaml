@@ -1,0 +1,10 @@
+logger:
+  level: info
+  format: text
+  output: stdout
+
+apiServer:
+  name: hello-module
+  host: 127.0.0.1
+  port: 8088
+  mode: release

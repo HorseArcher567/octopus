@@ -12,10 +12,10 @@ func main() {
 	configFile := flag.String("config", "configs/config.dev.yaml", "配置文件路径")
 	flag.Parse()
 
-	infra := bootstrap.NewInfraModule()
 	app.MustRun(*configFile, []app.Module{
-		infra,
-		bootstrap.NewRPCModule(infra),
+		bootstrap.NewInfraModule(),
+		bootstrap.NewServiceModule(),
+		bootstrap.NewRPCModule(),
 		bootstrap.NewAPIModule(),
 	})
 }

@@ -3,12 +3,9 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/HorseArcher567/octopus/pkg/config"
 )
 
 type runOptions struct {
@@ -67,12 +64,10 @@ func Run(configPath string, mods []Module, opts ...RunOption) error {
 	if configPath == "" {
 		return errors.New("app: config path is required")
 	}
-	cfg, err := config.Load(configPath)
+	a, err := Load(configPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
-
-	a := New(cfg)
 	a.Use(mods...)
 	for _, h := range o.startupHooks {
 		a.OnStartup(h)

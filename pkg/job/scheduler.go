@@ -22,7 +22,19 @@ func NewScheduler(log *xlog.Logger) *Scheduler {
 	}
 }
 
+func (s *Scheduler) Add(name string, fn Func) error {
+	job := &Job{Name: name, Func: fn}
+	if err := job.Validate(); err != nil {
+		return err
+	}
+	s.jobs = append(s.jobs, job)
+	return nil
+}
+
 func (s *Scheduler) AddJob(job *Job) {
+	if job == nil {
+		return
+	}
 	s.jobs = append(s.jobs, job)
 }
 

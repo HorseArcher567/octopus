@@ -85,6 +85,14 @@ func (s *Server) RegisterServices(registerFunc func(*grpc.Server)) {
 	registerFunc(s.grpcServer)
 }
 
+// Register applies service registration to the underlying grpc.Server.
+func (s *Server) Register(register func(*grpc.Server)) error {
+	if register != nil {
+		s.RegisterServices(register)
+	}
+	return nil
+}
+
 // Run starts the gRPC server and blocks until ctx is cancelled or server errors.
 // Note: Run does NOT call Stop; Stop is called by App uniformly.
 func (s *Server) Run(ctx context.Context) error {

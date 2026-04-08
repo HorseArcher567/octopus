@@ -14,18 +14,18 @@ import (
 type lifecycleModule struct {
 	id string
 
-	initErr  error
+	buildErr error
 	closeErr error
 
-	inited bool
+	built  bool
 	closed bool
 }
 
 func (m *lifecycleModule) ID() string { return m.id }
 
-func (m *lifecycleModule) Init(_ context.Context, _ Runtime) error {
-	m.inited = true
-	return m.initErr
+func (m *lifecycleModule) Build(_ context.Context, _ BuildContext) error {
+	m.built = true
+	return m.buildErr
 }
 
 func (m *lifecycleModule) Close(_ context.Context) error {
@@ -33,19 +33,19 @@ func (m *lifecycleModule) Close(_ context.Context) error {
 	return m.closeErr
 }
 
-func TestRunInitError(t *testing.T) {
+func TestRunBuildError(t *testing.T) {
 	cfgPath := writeTestConfig(t)
-	mod := &lifecycleModule{id: "broken-init", initErr: errors.New("boom")}
+	mod := &lifecycleModule{id: "broken-build", buildErr: errors.New("boom")}
 
 	err := Run(cfgPath, []Module{mod}, WithContext(context.Background()))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), `module "broken-init" init`) {
+	if !strings.Contains(err.Error(), `build module "broken-build"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !mod.inited {
-		t.Fatalf("expected module initialized state true: %+v", mod)
+	if !mod.built {
+		t.Fatalf("expected module build state true: %+v", mod)
 	}
 }
 
@@ -65,7 +65,7 @@ func TestMustRun(t *testing.T) {
 
 	MustRun(path, []Module{mod}, WithContext(context.Background()))
 
-	if !mod.inited || !mod.closed {
+	if !mod.built || !mod.closed {
 		t.Fatalf("module lifecycle should run: %+v", mod)
 	}
 }
@@ -105,16 +105,16 @@ func TestResolveModuleOrderCycle(t *testing.T) {
 	}
 }
 
-func TestRunInitRollbackReverseOrder(t *testing.T) {
+func TestRunBuildCloseReverseOrder(t *testing.T) {
 	path := writeTestConfig(t)
 	closed := make([]string, 0, 2)
 
 	ok1 := &trackingModule{id: "m1", onClose: func(id string) { closed = append(closed, id) }}
 	ok2 := &trackingModule{id: "m2", onClose: func(id string) { closed = append(closed, id) }}
-	fail := &trackingModule{id: "m3", initErr: errors.New("init fail")}
+	fail := &trackingModule{id: "m3", buildErr: errors.New("build fail")}
 
 	err := Run(path, []Module{ok1, ok2, fail}, WithContext(context.Background()))
-	if err == nil || !strings.Contains(err.Error(), `module "m3" init`) {
+	if err == nil || !strings.Contains(err.Error(), `build module "m3"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(closed) != 2 || closed[0] != "m2" || closed[1] != "m1" {
@@ -131,7 +131,10 @@ func TestNewRPCClientReuseAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	a := New(cfg)
+	a, err := FromConfig(cfg)
+	if err != nil {
+		t.Fatalf("from config: %v", err)
+	}
 	defer a.Logger().Close()
 
 	target := "127.0.0.1:65535"
@@ -159,16 +162,33 @@ func TestNewRPCClientReuseAndClose(t *testing.T) {
 	a.CloseRpcClients()
 }
 
+func TestFromConfigStrictDecode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := []byte("logger:\n  level: info\nshutdownTimeout: definitely-not-a-duration\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if _, err := FromConfig(cfg); err == nil {
+		t.Fatal("expected invalid framework config to fail")
+	}
+}
+
 type trackingModule struct {
 	id         string
-	initErr    error
+	buildErr   error
 	closeCalls int
 	onClose    func(id string)
 }
 
 func (m *trackingModule) ID() string { return m.id }
 
-func (m *trackingModule) Init(_ context.Context, _ Runtime) error { return m.initErr }
+func (m *trackingModule) Build(_ context.Context, _ BuildContext) error { return m.buildErr }
 
 func (m *trackingModule) Close(_ context.Context) error {
 	m.closeCalls++
@@ -176,6 +196,26 @@ func (m *trackingModule) Close(_ context.Context) error {
 		m.onClose(m.id)
 	}
 	return nil
+}
+
+type registerHTTPModule struct {
+	id string
+}
+
+func (m *registerHTTPModule) ID() string { return m.id }
+
+func (m *registerHTTPModule) RegisterHTTP(_ context.Context, r HTTPRegistrar) error {
+	return r.RegisterHTTP(nil)
+}
+
+func TestRunRegisterHTTPError(t *testing.T) {
+	path := writeTestConfig(t)
+	mod := &registerHTTPModule{id: "api"}
+
+	err := Run(path, []Module{mod}, WithContext(context.Background()))
+	if err == nil || !strings.Contains(err.Error(), `register http module "api"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func writeTestConfig(t *testing.T) string {

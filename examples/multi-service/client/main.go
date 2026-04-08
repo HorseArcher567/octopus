@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -24,7 +26,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	a := app.New(cfg)
+	a, err := app.FromConfig(cfg)
+	if err != nil {
+		panic(err)
+	}
 	defer a.Logger().Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -38,9 +43,25 @@ func main() {
 func runDemo(ctx context.Context, a *app.App, target, apiURL string) error {
 	log := a.Logger()
 
+	userID, err := runRPCDemo(ctx, a, target)
+	if err != nil {
+		return err
+	}
+	log.Info("RPC demo ok", "user_id", userID)
+
+	if err := runHTTPDemo(apiURL); err != nil {
+		return err
+	}
+	log.Info("HTTP demo ok", "api_url", apiURL)
+	return nil
+}
+
+func runRPCDemo(ctx context.Context, a *app.App, target string) (int64, error) {
+	log := a.Logger()
+
 	conn, err := a.NewRPCClient(target)
 	if err != nil {
-		return fmt.Errorf("new rpc client: %w", err)
+		return 0, fmt.Errorf("new rpc client: %w", err)
 	}
 	defer conn.Close()
 
@@ -60,29 +81,69 @@ func runDemo(ctx context.Context, a *app.App, target, apiURL string) error {
 		createUserResp, err = userClient.CreateUser(ctx, &pb.CreateUserRequest{Username: username, Email: email})
 	}
 	if err != nil {
-		return fmt.Errorf("CreateUser: %w", err)
+		return 0, fmt.Errorf("CreateUser: %w", err)
 	}
 	log.Info("CreateUser ok", "user_id", createUserResp.UserId)
 
 	if _, err := userClient.GetUser(ctx, &pb.GetUserRequest{UserId: createUserResp.UserId}); err != nil {
-		return fmt.Errorf("GetUser: %w", err)
+		return 0, fmt.Errorf("GetUser: %w", err)
 	}
 	log.Info("GetUser ok", "user_id", createUserResp.UserId)
 
 	if _, err := orderClient.CreateOrder(ctx, &pb.CreateOrderRequest{UserId: createUserResp.UserId, ProductName: "demo-product", Amount: 99.9}); err != nil {
-		return fmt.Errorf("CreateOrder: %w", err)
+		return 0, fmt.Errorf("CreateOrder: %w", err)
 	}
 	log.Info("CreateOrder ok", "user_id", createUserResp.UserId)
 
 	if _, err := productClient.ListProducts(ctx, &pb.ListProductsRequest{Page: 1, PageSize: 10}); err != nil {
-		return fmt.Errorf("ListProducts: %w", err)
+		return 0, fmt.Errorf("ListProducts: %w", err)
 	}
 	log.Info("ListProducts ok")
+	return createUserResp.UserId, nil
+}
+
+func runHTTPDemo(apiURL string) error {
+	baseURL, err := trimHelloURL(apiURL)
+	if err != nil {
+		return fmt.Errorf("invalid api url: %w", err)
+	}
 
 	if err := checkAPI(apiURL); err != nil {
 		return fmt.Errorf("API check: %w", err)
 	}
-	log.Info("API check ok", "url", apiURL)
+
+	createUserResp := struct {
+		UserID int64 `json:"user_id"`
+	}{}
+	suffix := time.Now().Unix()
+	if err := doJSON(http.MethodPost, baseURL+"/users", map[string]any{
+		"username": fmt.Sprintf("http_demo_user_%d", suffix),
+		"email":    fmt.Sprintf("http_demo_user_%d@example.com", suffix),
+	}, &createUserResp); err != nil {
+		return fmt.Errorf("http CreateUser: %w", err)
+	}
+
+	if err := doJSON(http.MethodGet, fmt.Sprintf("%s/users/%d", baseURL, createUserResp.UserID), nil, &struct {
+		UserID int64 `json:"user_id"`
+	}{}); err != nil {
+		return fmt.Errorf("http GetUser: %w", err)
+	}
+
+	if err := doJSON(http.MethodPost, baseURL+"/orders", map[string]any{
+		"user_id":      createUserResp.UserID,
+		"product_name": "http-demo-product",
+		"amount":       88.8,
+	}, &struct {
+		OrderID int64 `json:"order_id"`
+	}{}); err != nil {
+		return fmt.Errorf("http CreateOrder: %w", err)
+	}
+
+	if err := doJSON(http.MethodGet, baseURL+"/products?page=1&page_size=10", nil, &struct {
+		Total int32 `json:"total"`
+	}{}); err != nil {
+		return fmt.Errorf("http ListProducts: %w", err)
+	}
 	return nil
 }
 
@@ -98,4 +159,51 @@ func checkAPI(url string) error {
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func doJSON(method, url string, body any, target any) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+	}
+	if target == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+func trimHelloURL(apiURL string) (string, error) {
+	trimmed := strings.TrimRight(apiURL, "/")
+	if trimmed == "" {
+		return "", fmt.Errorf("empty api url")
+	}
+	if strings.HasSuffix(trimmed, "/hello") {
+		return strings.TrimSuffix(trimmed, "/hello"), nil
+	}
+	return trimmed, nil
 }

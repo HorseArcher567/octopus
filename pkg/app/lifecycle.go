@@ -16,49 +16,50 @@ const defaultShutdownTimeout = 30 * time.Second
 // Run starts all configured components and blocks until context cancellation or component error.
 // Run can only be called once for an App instance.
 func (a *App) Run(ctx context.Context) (retErr error) {
-	a.runMu.Lock()
-	if a.hasRun {
-		a.runMu.Unlock()
-		return errors.New("app: Run can only be called once")
+	if err := a.markRunOnce(); err != nil {
+		return err
 	}
-	a.hasRun = true
-	a.runMu.Unlock()
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	a.log.Info("starting application")
+	cancelRun := func() {}
 	defer func() {
+		cancelRun()
 		retErr = errors.Join(retErr, a.shutdown())
 	}()
 
 	if err := a.prepareModules(); err != nil {
 		return err
 	}
-	if err := a.initModules(ctx); err != nil {
+	if err := a.buildModules(ctx); err != nil {
+		return err
+	}
+	if err := a.registerRPCModules(ctx); err != nil {
+		return err
+	}
+	if err := a.registerHTTPModules(ctx); err != nil {
+		return err
+	}
+	if err := a.registerJobsModules(ctx); err != nil {
 		return err
 	}
 	if err := a.execStartupHooks(ctx); err != nil {
 		return err
 	}
 
-	g, runCtx := errgroup.WithContext(ctx)
-	if a.rpcServer != nil {
-		g.Go(func() error { return a.rpcServer.Run(runCtx) })
-	}
-	if a.apiServer != nil {
-		g.Go(func() error { return a.apiServer.Run(runCtx) })
-	}
-	if a.jobScheduler != nil {
-		g.Go(func() error { return a.jobScheduler.Run(runCtx) })
-	}
+	runCtx, cancel := context.WithCancel(ctx)
+	cancelRun = cancel
+	g, groupCtx := errgroup.WithContext(runCtx)
+	a.runBuiltins(g, groupCtx)
+	a.runModules(g, groupCtx)
 
-	retErr = g.Wait()
-	if errors.Is(retErr, context.Canceled) || errors.Is(retErr, context.DeadlineExceeded) {
+	waitErr := g.Wait()
+	if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) {
 		return nil
 	}
-	return retErr
+	return waitErr
 }
 
 func (a *App) prepareModules() error {
@@ -70,41 +71,130 @@ func (a *App) prepareModules() error {
 	return nil
 }
 
-func (a *App) initModules(ctx context.Context) error {
+func (a *App) markRunOnce() error {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.hasRun {
+		return errors.New("app: Run can only be called once")
+	}
+	a.hasRun = true
+	return nil
+}
+
+func (a *App) buildModules(ctx context.Context) error {
+	bctx := newBuildContext(a)
 	for _, mod := range a.orderedModules {
-		if err := mod.Init(ctx, a); err != nil {
-			rollbackErr := a.rollbackModules(ctx)
-			return errors.Join(fmt.Errorf("module %q init: %w", mod.ID(), err), rollbackErr)
+		buildMod, ok := mod.(BuildModule)
+		if !ok {
+			continue
 		}
-		a.initializedModules = append(a.initializedModules, mod)
+		if err := buildMod.Build(ctx, bctx); err != nil {
+			return fmt.Errorf("build module %q: %w", mod.ID(), err)
+		}
+		a.activateCloser(mod)
 	}
 	return nil
 }
 
-func (a *App) rollbackModules(ctx context.Context) error {
-	if len(a.initializedModules) == 0 {
-		return nil
+func (a *App) registerRPCModules(ctx context.Context) error {
+	registrar := newRPCRegistrar(a)
+	for _, mod := range a.orderedModules {
+		rpcMod, ok := mod.(RegisterRPCModule)
+		if !ok {
+			continue
+		}
+		if err := rpcMod.RegisterRPC(ctx, registrar); err != nil {
+			return fmt.Errorf("register rpc module %q: %w", mod.ID(), err)
+		}
+		a.activateCloser(mod)
 	}
-	err := a.closeModules(ctx, a.initializedModules)
-	a.initializedModules = nil
-	return err
+	return nil
 }
 
-func (a *App) closeInitializedModules(ctx context.Context) error {
-	err := a.closeModules(ctx, a.initializedModules)
-	a.initializedModules = nil
-	return err
+func (a *App) registerHTTPModules(ctx context.Context) error {
+	registrar := newHTTPRegistrar(a)
+	for _, mod := range a.orderedModules {
+		httpMod, ok := mod.(RegisterHTTPModule)
+		if !ok {
+			continue
+		}
+		if err := httpMod.RegisterHTTP(ctx, registrar); err != nil {
+			return fmt.Errorf("register http module %q: %w", mod.ID(), err)
+		}
+		a.activateCloser(mod)
+	}
+	return nil
 }
 
-func (a *App) closeModules(ctx context.Context, mods []Module) error {
+func (a *App) registerJobsModules(ctx context.Context) error {
+	registrar := newJobRegistrar(a)
+	for _, mod := range a.orderedModules {
+		jobMod, ok := mod.(RegisterJobsModule)
+		if !ok {
+			continue
+		}
+		if err := jobMod.RegisterJobs(ctx, registrar); err != nil {
+			return fmt.Errorf("register jobs module %q: %w", mod.ID(), err)
+		}
+		a.activateCloser(mod)
+	}
+	return nil
+}
+
+func (a *App) runBuiltins(g *errgroup.Group, ctx context.Context) {
+	if a.rpc != nil {
+		g.Go(func() error { return a.rpc.Run(ctx) })
+	}
+	if a.http != nil {
+		g.Go(func() error { return a.http.Run(ctx) })
+	}
+	if a.jobs != nil {
+		g.Go(func() error { return a.jobs.Run(ctx) })
+	}
+}
+
+func (a *App) runModules(g *errgroup.Group, ctx context.Context) {
+	for _, mod := range a.orderedModules {
+		runMod, ok := mod.(RunModule)
+		if !ok {
+			continue
+		}
+		a.activateCloser(mod)
+		runFn := runMod
+		id := mod.ID()
+		g.Go(func() error {
+			if err := runFn.Run(ctx); err != nil {
+				return fmt.Errorf("run module %q: %w", id, err)
+			}
+			return nil
+		})
+	}
+}
+
+func (a *App) activateCloser(mod Module) {
+	closeMod, ok := mod.(CloseModule)
+	if !ok {
+		return
+	}
+	id := mod.ID()
+	if _, exists := a.activeCloserIDs[id]; exists {
+		return
+	}
+	a.activeCloserIDs[id] = struct{}{}
+	a.activeClosers = append(a.activeClosers, moduleCloser{id: id, fn: closeMod})
+}
+
+func (a *App) closeActiveClosers(ctx context.Context) error {
 	var errs []error
-	for i := len(mods) - 1; i >= 0; i-- {
-		mod := mods[i]
-		if err := mod.Close(ctx); err != nil {
-			a.log.Error("module close error", "module_id", mod.ID(), "error", err)
-			errs = append(errs, fmt.Errorf("module %q close: %w", mod.ID(), err))
+	for i := len(a.activeClosers) - 1; i >= 0; i-- {
+		mod := a.activeClosers[i]
+		if err := mod.fn.Close(ctx); err != nil {
+			a.log.Error("module close error", "module_id", mod.id, "error", err)
+			errs = append(errs, fmt.Errorf("module %q close: %w", mod.id, err))
 		}
 	}
+	a.activeClosers = nil
+	a.activeCloserIDs = make(map[string]struct{})
 	return errors.Join(errs...)
 }
 
@@ -138,40 +228,49 @@ func (a *App) shutdown() error {
 		defer cancel()
 
 		var errs []error
-		if a.apiServer != nil {
-			if err := a.apiServer.Stop(shutdownCtx); err != nil {
-				errs = append(errs, fmt.Errorf("stop api server: %w", err))
-			}
+		errs = append(errs, a.stopBuiltins(shutdownCtx)...)
+		if err := a.closeActiveClosers(shutdownCtx); err != nil {
+			errs = append(errs, err)
 		}
-		if a.rpcServer != nil {
-			if err := a.rpcServer.Stop(shutdownCtx); err != nil {
-				errs = append(errs, fmt.Errorf("stop rpc server: %w", err))
-			}
-		}
-		if a.jobScheduler != nil {
-			if err := a.jobScheduler.Stop(shutdownCtx); err != nil {
-				errs = append(errs, fmt.Errorf("stop job scheduler: %w", err))
-			}
-		}
-
 		if err := a.execShutdownHooks(shutdownCtx); err != nil {
 			errs = append(errs, fmt.Errorf("shutdown hooks: %w", err))
-		}
-		if err := a.closeInitializedModules(shutdownCtx); err != nil {
-			errs = append(errs, err)
 		}
 		if a.resources != nil {
 			if err := a.resources.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("close resources: %w", err))
 			}
 		}
-		a.CloseRpcClients()
+		if a.rpc != nil {
+			if err := a.rpc.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close rpc runtime: %w", err))
+			}
+		}
 		if err := a.log.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close logger: %w", err))
 		}
 		shutdownErr = errors.Join(errs...)
 	})
 	return shutdownErr
+}
+
+func (a *App) stopBuiltins(ctx context.Context) []error {
+	var errs []error
+	if a.http != nil {
+		if err := a.http.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("stop http runtime: %w", err))
+		}
+	}
+	if a.rpc != nil {
+		if err := a.rpc.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("stop rpc runtime: %w", err))
+		}
+	}
+	if a.jobs != nil {
+		if err := a.jobs.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("stop job runtime: %w", err))
+		}
+	}
+	return errs
 }
 
 func resolveModuleOrder(mods []Module) ([]Module, error) {
@@ -200,7 +299,7 @@ func resolveModuleOrder(mods []Module) ([]Module, error) {
 	}
 
 	for _, mod := range mods {
-		dm, ok := mod.(DependedModule)
+		dm, ok := mod.(DependentModule)
 		if !ok {
 			continue
 		}
