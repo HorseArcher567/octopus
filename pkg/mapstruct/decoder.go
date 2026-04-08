@@ -3,6 +3,7 @@ package mapstruct
 import (
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"time"
@@ -652,11 +653,12 @@ func (d *Decoder) decodeToFloat(inputValue any, targetValue reflect.Value, targe
 	}
 
 	if targetType.Kind() == reflect.Float32 {
-		targetValue.SetFloat(floatValue)
-	} else {
-		targetValue.SetFloat(floatValue)
+		if floatValue > math.MaxFloat32 || floatValue < -math.MaxFloat32 {
+			return fmt.Errorf("value %g out of range for float32", floatValue)
+		}
 	}
 
+	targetValue.SetFloat(floatValue)
 	return nil
 }
 
