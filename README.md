@@ -19,6 +19,25 @@ That translates into four practical rules:
 - each phase only exposes the capabilities it should expose
 - dependencies flow through explicit assembly and DI, not hidden module coupling
 
+## Stability and package boundaries
+
+Octopus is currently usable, but the public API surface is still being refined.
+
+Stability expectations:
+
+- `pkg/app`, `pkg/di`, `pkg/api`, `pkg/rpc`, `pkg/resource`, `pkg/config`, `pkg/health`, `pkg/telemetry`, and `pkg/xlog` are the primary packages intended for framework consumers.
+- `pkg/discovery` and `pkg/discovery/etcd` are the preferred discovery-facing abstractions.
+- `pkg/rpc/registry` and etcd-specific compatibility code under `pkg/rpc/resolver` are transitional compatibility paths and should not be used for new application code.
+- `cmd/octopus-cli` is a scaffolding tool; generated templates may evolve along with the framework.
+
+If you are adopting Octopus in production, pin a version and review release notes or commit history before upgrading.
+
+Production adoption note:
+
+- prefer the public packages listed below
+- avoid direct dependencies on transitional compatibility paths
+- validate startup, shutdown, discovery, and telemetry behavior in your own integration environment before rolling out broadly
+
 ## Installation
 
 ```bash
@@ -144,14 +163,16 @@ Built-in kinds currently include:
 - `resource.KindMySQL`
 - `resource.KindRedis`
 
-### Container
+### Dependency injection
 
-The built-in container supports:
+The built-in dependency injection container in `pkg/di` supports:
 
 - `Provide(...)`
 - `ProvideNamed(...)`
 - `Resolve(...)`
 - `ResolveNamed(...)`
+- `ResolveAll(...)`
+- `ResolveAllNamed(...)`
 - `Invoke(...)`
 
 ## Health and telemetry
@@ -201,6 +222,7 @@ app.MustRun(configFile, []app.Module{
 octopus/
 ├── pkg/
 │   ├── app/            # lifecycle orchestration and assembly
+│   ├── di/             # dependency injection container
 │   ├── rpc/            # gRPC runtime and client factory
 │   ├── api/            # API runtime
 │   ├── resource/       # generic shared resources
@@ -215,13 +237,25 @@ octopus/
     └── octopus-cli/
 ```
 
-## Additional documents
+## Package guidance
 
-- [Migration Guide](./migration-guide.md)
-- [Release Notes](./release-notes.md)
-- [Remaining Cleanup](./remaining-cleanup.md)
-- [Refactor Plan](./refactor-plan.md)
-- [Refactor PR Plan](./refactor-pr-plan.md)
+Use these packages directly in application code:
+
+- `pkg/app`
+- `pkg/di`
+- `pkg/api`
+- `pkg/rpc`
+- `pkg/resource`
+- `pkg/config`
+- `pkg/health`
+- `pkg/telemetry`
+- `pkg/xlog`
+- `pkg/discovery` / `pkg/discovery/etcd` for discovery integration
+
+Avoid depending directly on these transitional internal paths in new code:
+
+- `pkg/rpc/registry`
+- etcd-specific compatibility pieces under `pkg/rpc/resolver`
 
 ## Testing
 

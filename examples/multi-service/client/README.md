@@ -1,5 +1,7 @@
 # Multi-Service Client Example
 
+See the project overview in the repository root [`README.md`](../../../README.md).
+
 ## Run
 
 ```bash

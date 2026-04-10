@@ -25,9 +25,15 @@ func (m *RPCModule) RegisterRPC(_ context.Context, r app.RPCRegistrar) error {
 	var orderSvc *service.OrderService
 	var productSvc *service.ProductService
 
-	r.MustResolve(&userSvc)
-	r.MustResolve(&orderSvc)
-	r.MustResolve(&productSvc)
+	if err := r.Resolve(&userSvc); err != nil {
+		return err
+	}
+	if err := r.Resolve(&orderSvc); err != nil {
+		return err
+	}
+	if err := r.Resolve(&productSvc); err != nil {
+		return err
+	}
 
 	log := r.Logger()
 	return r.RegisterRPC(func(s *grpc.Server) {

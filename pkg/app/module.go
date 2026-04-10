@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
+	"github.com/HorseArcher567/octopus/pkg/di"
 	"github.com/HorseArcher567/octopus/pkg/job"
 	"github.com/HorseArcher567/octopus/pkg/telemetry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -77,26 +78,13 @@ type RunModule interface {
 	Run(ctx context.Context) error
 }
 
-// Resolver exposes read-only dependency lookup.
-//
-// Resolver is primarily used during registration phases where modules need
-// access to values produced earlier during Build.
-type Resolver interface {
-	Resolve(target any) error
-	MustResolve(target any)
-}
+type Binder = di.Binder
 
-// Container exposes dependency publication during build.
-//
-// In addition to read-only resolution, Container supports publishing unnamed
-// and named bindings and invoking functions with auto-resolved arguments.
-type Container interface {
-	Resolver
-	Provide(value any) error
-	ProvideNamed(name string, value any) error
-	ResolveNamed(name string, target any) error
-	Invoke(fn any) error
-}
+type Resolver = di.Resolver
+
+type Invoker = di.Invoker
+
+type Container = di.Container
 
 // ResourceResolver exposes generic resource lookup.
 //

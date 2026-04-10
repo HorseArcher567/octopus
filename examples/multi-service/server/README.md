@@ -1,5 +1,7 @@
 # Multi-Service Server (Reference Example)
 
+See the project overview in the repository root [`README.md`](../../../README.md).
+
 This example is a modular single process app, not a true multi-process microservice system.
 It demonstrates how one Octopus app exposes multiple business services over both gRPC and HTTP.
 

@@ -16,9 +16,9 @@ Key concepts:
 - `Assemble(...)`: builds logger / rpc / api / resources / health / telemetry from config
 - `NewFromBootstrap(...)`: creates an `App` from assembled runtimes
 - `BuildContext`: exposes grouped capabilities instead of concrete infrastructure shortcuts
-- `Container`: supports unnamed and named bindings plus invoke
+- `Container`: a `pkg/di` capability that supports unnamed and named bindings, single and multi-resolution, and invoke
 
-`pkg/app` intentionally does not own low-level API/gRPC/resource implementation details; it coordinates them.
+`pkg/app` intentionally does not own low-level API/gRPC/resource/DI implementation details; it coordinates them.
 
 ## Architecture
 
@@ -36,8 +36,7 @@ pkg/app
 │   └── bootstrap.go
 │
 └── Layer 3: Runtime capability adapters
-    ├── runtime.go
-    └── container.go
+    └── runtime.go
 ```
 
 ### Layer 1: Public orchestration surface
@@ -59,8 +58,7 @@ This layer assembles framework runtimes from configuration before the `App` is c
 
 This layer defines the runtime abstraction interfaces consumed by `App` and adapts them into build/register phase capabilities.
 
-- `runtime.go`: runtime interfaces, `BuildContext` adapters, RPC/API/job registrars
-- `container.go`: dependency injection container implementation used during module wiring
+- `runtime.go`: runtime interfaces, `BuildContext` adapters, RPC/API/job registrars, and `pkg/di` integration
 
 ## Runtime flow
 

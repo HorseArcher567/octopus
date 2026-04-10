@@ -26,4 +26,6 @@ Current status:
 - RPC server registration already uses discovery registrar
 - RPC client discovery prefers provider-backed gRPC resolver builder when available
 
+For new code, prefer this package and `pkg/discovery/etcd` rather than legacy compatibility paths.
+
 Some legacy etcd-related code still remains under `pkg/rpc/registry` and `pkg/rpc/resolver` as transitional compatibility paths.

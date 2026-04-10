@@ -23,9 +23,15 @@ func (m *ServiceModule) Build(_ context.Context, b app.BuildContext) error {
 	var orderRepo repository.OrderRepository
 	var productRepo repository.ProductRepository
 
-	b.Container().MustResolve(&userRepo)
-	b.Container().MustResolve(&orderRepo)
-	b.Container().MustResolve(&productRepo)
+	if err := b.Container().Resolve(&userRepo); err != nil {
+		return err
+	}
+	if err := b.Container().Resolve(&orderRepo); err != nil {
+		return err
+	}
+	if err := b.Container().Resolve(&productRepo); err != nil {
+		return err
+	}
 
 	if err := b.Container().Provide(service.NewUserService(userRepo)); err != nil {
 		return err

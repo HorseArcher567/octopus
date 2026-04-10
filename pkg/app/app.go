@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/di"
 	"github.com/HorseArcher567/octopus/pkg/telemetry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
@@ -73,7 +74,7 @@ type App struct {
 	jobs      JobRuntime
 	resources ResourceRuntime
 	telemetry *telemetry.Runtime
-	container *container
+	container di.Container
 
 	shutdownTimeout time.Duration
 	startupHooks    []StartupHook
@@ -101,7 +102,7 @@ func New(log *xlog.Logger, opts ...Option) *App {
 	}
 	a := &App{
 		log:             log,
-		container:       newContainer(),
+		container:       di.New(),
 		activeCloserIDs: make(map[string]struct{}),
 	}
 	for _, opt := range opts {

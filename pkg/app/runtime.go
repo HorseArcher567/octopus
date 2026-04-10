@@ -154,8 +154,16 @@ func (r *rpcRegistrar) Resolve(target any) error {
 	return r.a.container.Resolve(target)
 }
 
-func (r *rpcRegistrar) MustResolve(target any) {
-	r.a.container.MustResolve(target)
+func (r *rpcRegistrar) ResolveNamed(name string, target any) error {
+	return r.a.container.ResolveNamed(name, target)
+}
+
+func (r *rpcRegistrar) ResolveAll(target any) error {
+	return r.a.container.ResolveAll(target)
+}
+
+func (r *rpcRegistrar) ResolveAllNamed(name string, target any) error {
+	return r.a.container.ResolveAllNamed(name, target)
 }
 
 func (r *rpcRegistrar) RegisterRPC(register func(s *grpc.Server)) error {
@@ -183,8 +191,16 @@ func (r *apiRegistrar) Resolve(target any) error {
 	return r.a.container.Resolve(target)
 }
 
-func (r *apiRegistrar) MustResolve(target any) {
-	r.a.container.MustResolve(target)
+func (r *apiRegistrar) ResolveNamed(name string, target any) error {
+	return r.a.container.ResolveNamed(name, target)
+}
+
+func (r *apiRegistrar) ResolveAll(target any) error {
+	return r.a.container.ResolveAll(target)
+}
+
+func (r *apiRegistrar) ResolveAllNamed(name string, target any) error {
+	return r.a.container.ResolveAllNamed(name, target)
 }
 
 func (r *apiRegistrar) RegisterAPI(register func(engine *api.Engine)) error {
@@ -212,8 +228,16 @@ func (r *jobRegistrar) Resolve(target any) error {
 	return r.a.container.Resolve(target)
 }
 
-func (r *jobRegistrar) MustResolve(target any) {
-	r.a.container.MustResolve(target)
+func (r *jobRegistrar) ResolveNamed(name string, target any) error {
+	return r.a.container.ResolveNamed(name, target)
+}
+
+func (r *jobRegistrar) ResolveAll(target any) error {
+	return r.a.container.ResolveAll(target)
+}
+
+func (r *jobRegistrar) ResolveAllNamed(name string, target any) error {
+	return r.a.container.ResolveAllNamed(name, target)
 }
 
 func (r *jobRegistrar) AddJob(name string, fn job.Func) error {

@@ -2,6 +2,8 @@
 
 The smallest Octopus example: one `app.Module`, one HTTP runtime, one route.
 
+See the project overview in the repository root [`README.md`](../../README.md).
+
 ## Run
 
 ```bash
