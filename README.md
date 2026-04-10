@@ -1,69 +1,33 @@
 # Octopus
 
-Octopus 是一个面向 Go 服务的轻量运行时框架，聚焦三件事：
+Octopus is a lightweight Go service runtime focused on a few strong primitives:
 
-- 统一应用生命周期（RPC / HTTP / Job）
-- etcd 服务发现与 gRPC 客户端接入
-- 可组合的模块化启动方式（phase-based `Module`）
+- unified application lifecycle orchestration
+- modular phased startup
+- built-in API / gRPC runtime integration
+- shared resource management
+- baseline health and telemetry (metrics / tracing)
 
-## 设计哲学
+## Design philosophy
 
-**框架负责编排，模块负责业务，让边界清晰、依赖显式、生命周期自然。**
+**The framework orchestrates. Modules own business logic. Dependencies stay explicit.**
 
-这句话对应四条实现约束：
+That translates into four practical rules:
 
-- `App` 负责编排启动顺序、关闭顺序和共享运行时能力
-- 模块只表达自己的业务构建、服务注册和运行逻辑
-- 每个阶段只暴露当下需要的能力，避免给模块一个过宽的入口
-- 依赖关系通过接口和显式装配流动，而不是通过模块之间直接耦合
+- `App` owns lifecycle ordering, shared runtimes, and shutdown behavior
+- modules express business construction, registration, and run loops
+- each phase only exposes the capabilities it should expose
+- dependencies flow through explicit assembly and DI, not hidden module coupling
 
-### V2 层次图
-
-```mermaid
-flowchart TD
-    AppKernel[AppKernel]
-    ModuleGraph[ModuleGraph]
-    LifecycleRunner[LifecycleRunner]
-    RuntimeServices[RuntimeServices]
-    RpcRuntime[RpcRuntime]
-    HttpRuntime[HttpRuntime]
-    JobRuntime[JobRuntime]
-    ResourceRuntime[ResourceRuntime]
-    BuildPhase[BuildPhase]
-    RegisterPhase[RegisterPhase]
-    RunPhase[RunPhase]
-    RpcClientFactory[RpcClientFactory]
-    ServiceDiscovery[ServiceDiscovery]
-
-    AppKernel --> ModuleGraph
-    AppKernel --> LifecycleRunner
-    AppKernel --> RuntimeServices
-    RuntimeServices --> RpcRuntime
-    RuntimeServices --> HttpRuntime
-    RuntimeServices --> JobRuntime
-    RuntimeServices --> ResourceRuntime
-    ModuleGraph --> BuildPhase
-    ModuleGraph --> RegisterPhase
-    ModuleGraph --> RunPhase
-    RpcRuntime --> RpcClientFactory
-    RpcRuntime --> ServiceDiscovery
-```
-
-这张图表达的是 V2 的核心边界：
-
-- `pkg/app` 更像一个 `AppKernel`，负责模块图和生命周期编排
-- 具体的 RPC / HTTP / Job / Resource 能力由独立 `Runtime` 提供
-- `RpcRuntime` 内部再拆分出 client factory 和 service discovery，而不是让 `App` 自己处理这些细节
-
-## 安装
+## Installation
 
 ```bash
 go get github.com/HorseArcher567/octopus
 ```
 
-## 快速开始
+## Quick start
 
-### 1. 运行示例服务
+### 1. Run the example service
 
 ```bash
 cd examples/multi-service/server
@@ -72,7 +36,7 @@ export $(grep -v '^#' .env | xargs)
 go run ./cmd/server -config configs/config.dev.yaml
 ```
 
-### 2. 运行示例客户端
+### 2. Run the example client
 
 ```bash
 go run ./examples/multi-service/client \
@@ -81,14 +45,14 @@ go run ./examples/multi-service/client \
   -api http://127.0.0.1:8090/hello
 ```
 
-### 3. 运行最小示例
+### 3. Run the minimal example
 
 ```bash
 cd examples/hello-module
 go run . -config config.yaml
 ```
 
-## 核心抽象
+## Core abstractions
 
 ```go
 type Module interface {
@@ -107,8 +71,12 @@ type RegisterRPCModule interface {
     RegisterRPC(ctx context.Context, r RPCRegistrar) error
 }
 
-type RegisterHTTPModule interface {
-    RegisterHTTP(ctx context.Context, r HTTPRegistrar) error
+type RegisterAPIModule interface {
+    RegisterAPI(ctx context.Context, r APIRegistrar) error
+}
+
+type RegisterJobsModule interface {
+    RegisterJobs(ctx context.Context, r JobRegistrar) error
 }
 
 type CloseModule interface {
@@ -116,29 +84,107 @@ type CloseModule interface {
 }
 ```
 
-- `ID`: 模块唯一标识
-- `DependsOn`: 可选依赖声明
-- `Build`: 构建依赖与装配业务对象
-- `RegisterRPC` / `RegisterHTTP`: 注册对外入口
-- `Close`: 关闭阶段回收（逆序执行）
+## Build phase capabilities
 
-## Phase 能力
+`BuildContext` now exposes grouped capabilities instead of infrastructure-specific shortcuts:
 
-模块按阶段获取受限能力，不直接依赖 `*App`：
+- `Logger()`
+- `Container()`
+- `Resources()`
+- `RPC()`
+- `Telemetry()`
 
-- `BuildContext`: `Logger()` / `MySQL(name)` / `Redis(name)` / `RPCClient(target)` / `Container`
-- `RPCRegistrar`: `Logger()` / `Resolver` / `RegisterRPC(...)`
-- `HTTPRegistrar`: `Logger()` / `Resolver` / `RegisterHTTP(...)`
-- `JobRegistrar`: `Logger()` / `Resolver` / `AddJob(...)`
+Example:
 
-### RPC 客户端复用
+```go
+db, err := resource.As[*database.DB](b.Resources(), resource.KindMySQL, "primary")
+if err != nil {
+    return err
+}
 
-- `NewRPCClient(target)` 会按 `target` 复用连接。
-- 相同 `target` 多次调用返回同一个 `*grpc.ClientConn`。
-- 框架在 `App` 关闭阶段自动调用 `CloseRpcClients()` 统一释放连接。
-- 如果业务在运行期主动调用 `CloseRpcClients()`，后续再调用 `NewRPCClient(target)` 会创建新连接。
+if err := b.Container().Provide(NewRepo(db)); err != nil {
+    return err
+}
+```
 
-## 应用入口示例
+## Runtime capabilities
+
+### API
+
+The API runtime supports:
+
+- default middleware stack
+- custom middleware extension via `api.WithMiddleware(...)`
+- disabling built-in middleware via `api.WithoutDefaultMiddleware()`
+- `Register(...)`
+- `Run(ctx)` / `Stop(ctx)`
+
+### gRPC
+
+The gRPC runtime supports:
+
+- default logging and logger-injection interceptors
+- custom unary interceptors via `rpc.WithUnaryInterceptors(...)`
+- custom stream interceptors via `rpc.WithStreamInterceptors(...)`
+- additional server options via `rpc.WithServerOptions(...)`
+- cached outbound clients
+
+### Resources
+
+Resources are now accessed through a generic runtime model:
+
+- `Register(kind, name, value, closeFn)`
+- `Get(kind, name)`
+- `MustGet(kind, name)`
+- `List(kind)`
+- `Close()`
+
+Built-in kinds currently include:
+
+- `resource.KindMySQL`
+- `resource.KindRedis`
+
+### Container
+
+The built-in container supports:
+
+- `Provide(...)`
+- `ProvideNamed(...)`
+- `Resolve(...)`
+- `ResolveNamed(...)`
+- `Invoke(...)`
+
+## Health and telemetry
+
+Octopus now includes built-in health and telemetry support.
+
+### Health
+
+- API `/health`
+- aggregate health status
+- checker registry
+
+### Telemetry metrics
+
+- API `/metrics`
+- API request counters and duration histograms
+- gRPC request counters and duration histograms
+
+### Telemetry tracing
+
+- Gin tracing middleware
+- gRPC tracing via stats handler
+- OpenTelemetry tracer provider runtime
+
+> Current tracing bootstrap uses a minimal default setup suitable for development. It should be further refined into explicit config in a later pass.
+
+## RPC client reuse
+
+- `NewRPCClient(target)` reuses connections by target
+- repeated calls with the same target return the same `*grpc.ClientConn`
+- `CloseRpcClients()` releases cached clients
+
+## Application entry example
 
 ```go
 app.MustRun(configFile, []app.Module{
@@ -149,42 +195,40 @@ app.MustRun(configFile, []app.Module{
 })
 ```
 
-其中：
-
-- `infra` 模块初始化数据库并构建仓储
-- `service` 模块消费仓储并构建业务服务
-- `rpc` 模块消费服务并注册 gRPC 服务
-- `api` 模块注册 HTTP 路由
-
-`examples/multi-service` 展示的是“一个进程内承载多个业务服务”的参考实现；
-如果你想先理解最小心智模型，优先看 `examples/hello-module`。
-
-## 项目结构
+## Project structure
 
 ```text
 octopus/
 ├── pkg/
-│   ├── app/        # 生命周期与模块运行时
-│   ├── rpc/        # gRPC server/client + etcd 注册发现
-│   ├── api/        # HTTP API server (gin)
-│   ├── resource/   # MySQL/Redis 资源管理
-│   ├── config/     # 配置加载
-│   └── xlog/       # 日志
+│   ├── app/            # lifecycle orchestration and assembly
+│   ├── rpc/            # gRPC runtime and client factory
+│   ├── api/            # API runtime
+│   ├── resource/       # generic shared resources
+│   ├── health/         # health runtime and checks
+│   ├── telemetry/      # metrics / tracing runtime
+│   ├── config/         # configuration loading
+│   └── xlog/           # logging
 ├── examples/
 │   ├── hello-module/
 │   └── multi-service/
-│       ├── server/
-│       └── client/
 └── cmd/
     └── octopus-cli/
 ```
 
-## 测试
+## Additional documents
+
+- [Migration Guide](./migration-guide.md)
+- [Release Notes](./release-notes.md)
+- [Remaining Cleanup](./remaining-cleanup.md)
+- [Refactor Plan](./refactor-plan.md)
+- [Refactor PR Plan](./refactor-pr-plan.md)
+
+## Testing
 
 ```bash
-GOCACHE=/tmp/go-build go test ./...
+go test ./...
 ```
 
-## 许可证
+## License
 
 MIT

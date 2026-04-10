@@ -5,22 +5,29 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/HorseArcher567/octopus/pkg/rpc/registry"
+	"github.com/HorseArcher567/octopus/pkg/discovery"
+	"github.com/HorseArcher567/octopus/pkg/rpc/middleware"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/stats"
 )
 
-// Server wraps a gRPC server with service configuration, logging, and registry support.
+// Server wraps a gRPC server with service configuration, logging, and
+// discovery-backed registration support.
 type Server struct {
 	log    *xlog.Logger
 	config *ServerConfig
 
-	grpcServer  *grpc.Server
-	grpcOptions []grpc.ServerOption
+	grpcServer         *grpc.Server
+	serverOptions      []grpc.ServerOption
+	unaryInterceptors  []grpc.UnaryServerInterceptor
+	streamInterceptors []grpc.StreamServerInterceptor
+	statsHandlers      []stats.Handler
 
-	registry   *registry.Registry
+	registrar  discovery.Registrar
+	instance   *discovery.Instance
 	etcdClient *clientv3.Client
 }
 
@@ -34,8 +41,9 @@ func MustNewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) *Serv
 }
 
 // NewServer creates a new RPC Server.
-// Functional options can be used to configure the logger, etcd integration, and
-// underlying grpc.Server behavior.
+//
+// Functional options can be used to configure discovery integration,
+// interceptors, stats handlers, and underlying grpc.Server behavior.
 func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -72,11 +80,44 @@ func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server,
 				"minTime", formatDuration(ep.MinTime),
 				"permitWithoutStream", ep.PermitWithoutStream)
 		}
-		s.grpcOptions = append(s.grpcOptions, keepaliveOpts...)
+		s.serverOptions = append(s.serverOptions, keepaliveOpts...)
 	}
 
-	s.grpcServer = grpc.NewServer(s.grpcOptions...)
+	defaultUnary := []grpc.UnaryServerInterceptor{
+		middleware.UnaryInjectLogger(s.log),
+		middleware.UnaryServerLogging(),
+	}
+	defaultStream := []grpc.StreamServerInterceptor{
+		middleware.StreamInjectLogger(s.log),
+		middleware.StreamServerLogging(),
+	}
+
+	allUnary := append(defaultUnary, s.unaryInterceptors...)
+	allStream := append(defaultStream, s.streamInterceptors...)
+	if len(allUnary) > 0 {
+		s.serverOptions = append(s.serverOptions, grpc.ChainUnaryInterceptor(allUnary...))
+	}
+	if len(allStream) > 0 {
+		s.serverOptions = append(s.serverOptions, grpc.ChainStreamInterceptor(allStream...))
+	}
+	for _, h := range s.statsHandlers {
+		if h != nil {
+			s.serverOptions = append(s.serverOptions, grpc.StatsHandler(h))
+		}
+	}
+
+	s.grpcServer = grpc.NewServer(s.serverOptions...)
 	return s, nil
+}
+
+// UnaryInterceptorCount returns the effective unary interceptor count, including defaults.
+func (s *Server) UnaryInterceptorCount() int {
+	return 2 + len(s.unaryInterceptors)
+}
+
+// StreamInterceptorCount returns the effective stream interceptor count, including defaults.
+func (s *Server) StreamInterceptorCount() int {
+	return 2 + len(s.streamInterceptors)
 }
 
 // RegisterServices registers one or more gRPC services on the underlying grpc.Server.
@@ -98,8 +139,8 @@ func (s *Server) Register(register func(*grpc.Server)) error {
 func (s *Server) Run(ctx context.Context) error {
 	// Register to etcd if configured (do this before starting server)
 	if s.config.ShouldRegisterInstance() {
-		if err := s.registerInstance(); err != nil {
-			s.log.Error("failed to register instance to etcd", "error", err)
+		if err := s.registerInstance(ctx); err != nil {
+			s.log.Error("failed to register instance", "error", err)
 			return err
 		}
 	}
@@ -138,13 +179,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-// Stop gracefully stops the server and unregisters it from the registry if present.
+// Stop gracefully stops the server and deregisters its discovery instance when present.
 // It blocks until the server has finished shutting down.
 func (s *Server) Stop(ctx context.Context) error {
 	s.log.Info("shutting down rpc server gracefully")
 
-	if s.registry != nil {
-		s.registry.Unregister()
+	if s.registrar != nil && s.instance != nil {
+		if err := s.registrar.Deregister(ctx, *s.instance); err != nil {
+			s.log.Warn("failed to deregister instance", "error", err)
+		}
 	}
 
 	// GracefulStop will block until all connections are closed or ctx is cancelled
@@ -165,23 +208,20 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 }
 
-// registerInstance registers the service instance to the service registry (etcd) using the provided configuration.
-func (s *Server) registerInstance() error {
-	instance := &registry.Instance{
-		Name: s.config.Name,
-		Addr: s.config.AdvertiseAddr,
-		Port: s.config.Port,
+// registerInstance registers the service instance through the configured discovery registrar.
+func (s *Server) registerInstance(ctx context.Context) error {
+	if s.registrar == nil {
+		return fmt.Errorf("rpc: discovery registrar is not configured")
 	}
-
-	// Create a context that carries the logger.
-	r, err := registry.NewRegistry(s.log, s.etcdClient, instance)
-	if err != nil {
+	instance := discovery.Instance{
+		Service: s.config.Name,
+		Address: s.config.AdvertiseAddr,
+		Port:    s.config.Port,
+	}
+	if err := s.registrar.Register(ctx, instance); err != nil {
 		return err
 	}
-
-	r.Register()
-	s.registry = r
-	s.log.Info("instance registered to etcd", "instance", instance)
-
+	s.instance = &instance
+	s.log.Info("instance registered", "instance", instance)
 	return nil
 }

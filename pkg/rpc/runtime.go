@@ -1,3 +1,4 @@
+// Package rpc provides Octopus gRPC server and client runtime integration.
 package rpc
 
 import (
@@ -8,11 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/discovery"
+	discoveryetcd "github.com/HorseArcher567/octopus/pkg/discovery/etcd"
 	"github.com/HorseArcher567/octopus/pkg/etcd"
 	"github.com/HorseArcher567/octopus/pkg/rpc/resolver"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
+	grpcresolver "google.golang.org/grpc/resolver"
 )
 
 // RuntimeConfig describes the full RPC runtime shape used by app assembly.
@@ -23,17 +27,21 @@ type RuntimeConfig struct {
 }
 
 // ClientFactory owns reusable gRPC client connections.
+//
+// Connections are cached by target and may integrate with discovery-backed
+// resolvers depending on runtime configuration.
 type ClientFactory struct {
-	log        *xlog.Logger
-	dialOpts   []grpc.DialOption
-	etcdClient *clientv3.Client
+	log               *xlog.Logger
+	dialOpts          []grpc.DialOption
+	etcdClient        *clientv3.Client
+	discoveryProvider discovery.Provider
 
 	mu      sync.Mutex
 	clients map[string]*grpc.ClientConn
 }
 
 // NewClientFactory builds a client factory with optional discovery support.
-func NewClientFactory(log *xlog.Logger, cfg *ClientOptions, etcdClient *clientv3.Client) *ClientFactory {
+func NewClientFactory(log *xlog.Logger, cfg *ClientOptions, etcdClient *clientv3.Client, discoveryProvider discovery.Provider) *ClientFactory {
 	if log == nil {
 		log = xlog.MustNew(nil)
 	}
@@ -41,10 +49,11 @@ func NewClientFactory(log *xlog.Logger, cfg *ClientOptions, etcdClient *clientv3
 		cfg = &ClientOptions{}
 	}
 	return &ClientFactory{
-		log:        log,
-		dialOpts:   cfg.BuildDialOptions(),
-		etcdClient: etcdClient,
-		clients:    make(map[string]*grpc.ClientConn),
+		log:               log,
+		dialOpts:          cfg.BuildDialOptions(),
+		etcdClient:        etcdClient,
+		discoveryProvider: discoveryProvider,
+		clients:           make(map[string]*grpc.ClientConn),
 	}
 }
 
@@ -61,10 +70,18 @@ func (f *ClientFactory) Client(target string) (*grpc.ClientConn, error) {
 	dialOpts := append([]grpc.DialOption{}, f.dialOpts...)
 	switch {
 	case strings.HasPrefix(target, "etcd:///"):
-		if f.etcdClient == nil {
-			return nil, fmt.Errorf("rpc: etcd client is not configured for target %q", target)
+		if f.discoveryProvider == nil {
+			if f.etcdClient == nil {
+				return nil, fmt.Errorf("rpc: etcd client is not configured for target %q", target)
+			}
+			dialOpts = append(dialOpts, grpc.WithResolvers(resolver.NewEtcdBuilder(f.log, f.etcdClient)))
+			break
 		}
-		dialOpts = append(dialOpts, grpc.WithResolvers(resolver.NewEtcdBuilder(f.log, f.etcdClient)))
+		if builder, ok := f.discoveryProvider.GRPCResolverBuilder().(grpcresolver.Builder); ok {
+			dialOpts = append(dialOpts, grpc.WithResolvers(builder))
+		} else {
+			return nil, fmt.Errorf("rpc: discovery provider does not expose a gRPC resolver builder")
+		}
 	case strings.HasPrefix(target, "direct:///"):
 		dialOpts = append(dialOpts, grpc.WithResolvers(resolver.NewDirectBuilder(f.log)))
 	}
@@ -114,16 +131,20 @@ func (f *ClientFactory) Close() error {
 }
 
 // Runtime owns both the inbound RPC server and outbound client factory.
+//
+// Runtime may also own discovery and etcd resources needed by server
+// registration and client-side resolution.
 type Runtime struct {
-	log          *xlog.Logger
-	server       *Server
-	clients      *ClientFactory
-	etcdClient   *clientv3.Client
-	ownsEtcdConn bool
+	log               *xlog.Logger
+	server            *Server
+	clients           *ClientFactory
+	etcdClient        *clientv3.Client
+	discoveryProvider discovery.Provider
+	ownsEtcdConn      bool
 }
 
 // NewRuntime builds a full RPC runtime from declarative config.
-func NewRuntime(log *xlog.Logger, cfg *RuntimeConfig) (*Runtime, error) {
+func NewRuntime(log *xlog.Logger, cfg *RuntimeConfig, serverOpts ...Option) (*Runtime, error) {
 	if log == nil {
 		log = xlog.MustNew(nil)
 	}
@@ -138,13 +159,20 @@ func NewRuntime(log *xlog.Logger, cfg *RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 		rt.etcdClient = etcdClient
+		rt.discoveryProvider = discoveryetcd.NewProvider(log, etcdClient)
 		rt.ownsEtcdConn = true
 	}
 
-	rt.clients = NewClientFactory(log, cfg.ClientOptions, rt.etcdClient)
+	rt.clients = NewClientFactory(log, cfg.ClientOptions, rt.etcdClient, rt.discoveryProvider)
 
 	if cfg.Server != nil {
-		server, err := NewServer(log, cfg.Server, WithEtcdClient(rt.etcdClient))
+		opts := make([]Option, 0, len(serverOpts)+2)
+		opts = append(opts, WithEtcdClient(rt.etcdClient))
+		if rt.discoveryProvider != nil {
+			opts = append(opts, WithRegistrar(rt.discoveryProvider.Registrar()))
+		}
+		opts = append(opts, serverOpts...)
+		server, err := NewServer(log, cfg.Server, opts...)
 		if err != nil {
 			_ = rt.Close()
 			return nil, err
@@ -200,6 +228,12 @@ func (r *Runtime) Close() error {
 	var errs []error
 	if err := r.CloseClients(); err != nil {
 		errs = append(errs, err)
+	}
+	if r.discoveryProvider != nil {
+		if err := r.discoveryProvider.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		r.discoveryProvider = nil
 	}
 	if r.ownsEtcdConn && r.etcdClient != nil {
 		if err := r.etcdClient.Close(); err != nil {

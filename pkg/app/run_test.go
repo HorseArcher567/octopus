@@ -198,22 +198,22 @@ func (m *trackingModule) Close(_ context.Context) error {
 	return nil
 }
 
-type registerHTTPModule struct {
+type registerAPIModule struct {
 	id string
 }
 
-func (m *registerHTTPModule) ID() string { return m.id }
+func (m *registerAPIModule) ID() string { return m.id }
 
-func (m *registerHTTPModule) RegisterHTTP(_ context.Context, r HTTPRegistrar) error {
-	return r.RegisterHTTP(nil)
+func (m *registerAPIModule) RegisterAPI(_ context.Context, r APIRegistrar) error {
+	return r.RegisterAPI(nil)
 }
 
-func TestRunRegisterHTTPError(t *testing.T) {
+func TestRunRegisterAPIError(t *testing.T) {
 	path := writeTestConfig(t)
-	mod := &registerHTTPModule{id: "api"}
+	mod := &registerAPIModule{id: "api"}
 
 	err := Run(path, []Module{mod}, WithContext(context.Background()))
-	if err == nil || !strings.Contains(err.Error(), `register http module "api"`) {
+	if err == nil || !strings.Contains(err.Error(), `register api module "api"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

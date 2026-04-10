@@ -1,10 +1,23 @@
 # pkg/resource
 
-`pkg/resource` manages named infrastructure resources shared by modules.
+`pkg/resource` manages named shared infrastructure resources.
 
-Today it supports:
+The runtime model is generic:
 
-- MySQL connections
-- Redis clients
-- startup health checks
-- ordered shutdown through `Close()`
+- `Register(kind, name, value, closeFn)`
+- `Get(kind, name)`
+- `MustGet(kind, name)`
+- `List(kind)`
+- `Close()`
+
+Built-in resource kinds currently include:
+
+- `resource.KindMySQL`
+- `resource.KindRedis`
+
+Helpers:
+
+- `resource.As[T](...)`
+- `resource.MustAs[T](...)`
+
+This lets modules depend on resource capabilities without forcing framework core APIs to expose MySQL/Redis-specific methods.

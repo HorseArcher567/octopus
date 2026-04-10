@@ -1,41 +1,81 @@
 package app
 
+// This file defines the runtime abstractions consumed by App and the adapters
+// that expose those capabilities during module build and registration phases.
+
 import (
+	"context"
 	"errors"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
-	"github.com/HorseArcher567/octopus/pkg/database"
 	"github.com/HorseArcher567/octopus/pkg/job"
-	redisclient "github.com/HorseArcher567/octopus/pkg/redis"
+	"github.com/HorseArcher567/octopus/pkg/telemetry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 )
 
+// RPCRuntime owns inbound RPC registration and outbound client creation.
+type RPCRuntime interface {
+	Register(func(*grpc.Server)) error
+	Client(target string) (*grpc.ClientConn, error)
+	CloseClients() error
+	Run(context.Context) error
+	Stop(context.Context) error
+	Close() error
+}
+
+// APIRuntime owns API route registration and server lifecycle.
+type APIRuntime interface {
+	Register(func(*api.Engine)) error
+	Run(context.Context) error
+	Stop(context.Context) error
+}
+
+// JobRuntime owns background job registration and scheduler lifecycle.
+type JobRuntime interface {
+	Add(name string, fn job.Func) error
+	Run(context.Context) error
+	Stop(context.Context) error
+}
+
+// ResourceRuntime owns shared infrastructure resources.
+type ResourceRuntime interface {
+	Register(kind, name string, value any, closeFn func() error) error
+	Get(kind, name string) (any, error)
+	MustGet(kind, name string) any
+	List(kind string) []string
+	Close() error
+}
+
 var (
-	_ BuildContext  = (*buildContext)(nil)
-	_ RPCRegistrar  = (*rpcRegistrar)(nil)
-	_ HTTPRegistrar = (*httpRegistrar)(nil)
-	_ JobRegistrar  = (*jobRegistrar)(nil)
+	_ BuildContext = (*buildContext)(nil)
+	_ RPCRegistrar = (*rpcRegistrar)(nil)
+	_ APIRegistrar = (*apiRegistrar)(nil)
+	_ JobRegistrar = (*jobRegistrar)(nil)
 )
 
+// Logger returns the application logger.
 func (a *App) Logger() *xlog.Logger {
 	return a.log
 }
 
-func (a *App) MySQL(name string) (*database.DB, error) {
+// Get returns the named resource of the given kind.
+func (a *App) Get(kind, name string) (any, error) {
 	if a.resources == nil {
 		return nil, errors.New("app: resource runtime is not initialized")
 	}
-	return a.resources.MySQL(name)
+	return a.resources.Get(kind, name)
 }
 
-func (a *App) Redis(name string) (*redisclient.Client, error) {
+// MustGet returns the named resource of the given kind and panics on error.
+func (a *App) MustGet(kind, name string) any {
 	if a.resources == nil {
-		return nil, errors.New("app: resource runtime is not initialized")
+		panic("app: resource runtime is not initialized")
 	}
-	return a.resources.Redis(name)
+	return a.resources.MustGet(kind, name)
 }
 
+// RPCClient returns an outbound RPC client connection for target.
 func (a *App) RPCClient(target string) (*grpc.ClientConn, error) {
 	if a.rpc == nil {
 		return nil, errors.New("app: rpc runtime is not initialized")
@@ -48,6 +88,7 @@ func (a *App) NewRPCClient(target string) (*grpc.ClientConn, error) {
 	return a.RPCClient(target)
 }
 
+// CloseRpcClients closes cached outbound RPC clients.
 func (a *App) CloseRpcClients() {
 	if a.rpc == nil {
 		return
@@ -57,10 +98,12 @@ func (a *App) CloseRpcClients() {
 	}
 }
 
+// buildContext adapts App capabilities to the BuildContext interface.
 type buildContext struct {
 	a *App
 }
 
+// newBuildContext creates a BuildContext backed by a.
 func newBuildContext(a *App) BuildContext {
 	return &buildContext{a: a}
 }
@@ -69,34 +112,36 @@ func (c *buildContext) Logger() *xlog.Logger {
 	return c.a.Logger()
 }
 
-func (c *buildContext) MySQL(name string) (*database.DB, error) {
-	return c.a.MySQL(name)
+func (c *buildContext) Container() Container {
+	return c.a.container
 }
 
-func (c *buildContext) Redis(name string) (*redisclient.Client, error) {
-	return c.a.Redis(name)
+func (c *buildContext) Resources() ResourceResolver {
+	return c.a
 }
 
-func (c *buildContext) RPCClient(target string) (*grpc.ClientConn, error) {
-	return c.a.RPCClient(target)
+func (c *buildContext) RPC() RPCClientResolver {
+	return rpcClientResolverFunc(c.a.RPCClient)
 }
 
-func (c *buildContext) Provide(value any) error {
-	return c.a.container.Provide(value)
+// Telemetry returns the assembled telemetry runtime.
+func (c *buildContext) Telemetry() *telemetry.Runtime {
+	return c.a.telemetry
 }
 
-func (c *buildContext) Resolve(target any) error {
-	return c.a.container.Resolve(target)
+// rpcClientResolverFunc adapts a function to RPCClientResolver.
+type rpcClientResolverFunc func(target string) (*grpc.ClientConn, error)
+
+func (f rpcClientResolverFunc) Client(target string) (*grpc.ClientConn, error) {
+	return f(target)
 }
 
-func (c *buildContext) MustResolve(target any) {
-	c.a.container.MustResolve(target)
-}
-
+// rpcRegistrar adapts App capabilities to the RPCRegistrar interface.
 type rpcRegistrar struct {
 	a *App
 }
 
+// newRPCRegistrar creates an RPCRegistrar backed by a.
 func newRPCRegistrar(a *App) RPCRegistrar {
 	return &rpcRegistrar{a: a}
 }
@@ -120,37 +165,41 @@ func (r *rpcRegistrar) RegisterRPC(register func(s *grpc.Server)) error {
 	return r.a.rpc.Register(register)
 }
 
-type httpRegistrar struct {
+// apiRegistrar adapts App capabilities to the APIRegistrar interface.
+type apiRegistrar struct {
 	a *App
 }
 
-func newHTTPRegistrar(a *App) HTTPRegistrar {
-	return &httpRegistrar{a: a}
+// newAPIRegistrar creates an APIRegistrar backed by a.
+func newAPIRegistrar(a *App) APIRegistrar {
+	return &apiRegistrar{a: a}
 }
 
-func (r *httpRegistrar) Logger() *xlog.Logger {
+func (r *apiRegistrar) Logger() *xlog.Logger {
 	return r.a.Logger()
 }
 
-func (r *httpRegistrar) Resolve(target any) error {
+func (r *apiRegistrar) Resolve(target any) error {
 	return r.a.container.Resolve(target)
 }
 
-func (r *httpRegistrar) MustResolve(target any) {
+func (r *apiRegistrar) MustResolve(target any) {
 	r.a.container.MustResolve(target)
 }
 
-func (r *httpRegistrar) RegisterHTTP(register func(engine *api.Engine)) error {
-	if r.a.http == nil {
-		return errors.New("app: http runtime is not initialized")
+func (r *apiRegistrar) RegisterAPI(register func(engine *api.Engine)) error {
+	if r.a.api == nil {
+		return errors.New("app: api runtime is not initialized")
 	}
-	return r.a.http.Register(register)
+	return r.a.api.Register(register)
 }
 
+// jobRegistrar adapts App capabilities to the JobRegistrar interface.
 type jobRegistrar struct {
 	a *App
 }
 
+// newJobRegistrar creates a JobRegistrar backed by a.
 func newJobRegistrar(a *App) JobRegistrar {
 	return &jobRegistrar{a: a}
 }

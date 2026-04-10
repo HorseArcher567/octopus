@@ -1,5 +1,8 @@
 package app
 
+// This file contains the core application run loop, phased module orchestration,
+// dependency ordering, and shutdown behavior.
+
 import (
 	"context"
 	"errors"
@@ -39,7 +42,7 @@ func (a *App) Run(ctx context.Context) (retErr error) {
 	if err := a.registerRPCModules(ctx); err != nil {
 		return err
 	}
-	if err := a.registerHTTPModules(ctx); err != nil {
+	if err := a.registerAPIModules(ctx); err != nil {
 		return err
 	}
 	if err := a.registerJobsModules(ctx); err != nil {
@@ -62,6 +65,7 @@ func (a *App) Run(ctx context.Context) (retErr error) {
 	return waitErr
 }
 
+// prepareModules resolves module ordering before phased execution begins.
 func (a *App) prepareModules() error {
 	order, err := resolveModuleOrder(a.modules)
 	if err != nil {
@@ -71,6 +75,7 @@ func (a *App) prepareModules() error {
 	return nil
 }
 
+// markRunOnce ensures Run is only executed once per App instance.
 func (a *App) markRunOnce() error {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
@@ -81,6 +86,7 @@ func (a *App) markRunOnce() error {
 	return nil
 }
 
+// buildModules executes the Build phase for all ordered modules.
 func (a *App) buildModules(ctx context.Context) error {
 	bctx := newBuildContext(a)
 	for _, mod := range a.orderedModules {
@@ -96,6 +102,7 @@ func (a *App) buildModules(ctx context.Context) error {
 	return nil
 }
 
+// registerRPCModules executes the RPC registration phase for all ordered modules.
 func (a *App) registerRPCModules(ctx context.Context) error {
 	registrar := newRPCRegistrar(a)
 	for _, mod := range a.orderedModules {
@@ -111,21 +118,23 @@ func (a *App) registerRPCModules(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) registerHTTPModules(ctx context.Context) error {
-	registrar := newHTTPRegistrar(a)
+// registerAPIModules executes the API registration phase for all ordered modules.
+func (a *App) registerAPIModules(ctx context.Context) error {
+	registrar := newAPIRegistrar(a)
 	for _, mod := range a.orderedModules {
-		httpMod, ok := mod.(RegisterHTTPModule)
+		apiMod, ok := mod.(RegisterAPIModule)
 		if !ok {
 			continue
 		}
-		if err := httpMod.RegisterHTTP(ctx, registrar); err != nil {
-			return fmt.Errorf("register http module %q: %w", mod.ID(), err)
+		if err := apiMod.RegisterAPI(ctx, registrar); err != nil {
+			return fmt.Errorf("register api module %q: %w", mod.ID(), err)
 		}
 		a.activateCloser(mod)
 	}
 	return nil
 }
 
+// registerJobsModules executes the job registration phase for all ordered modules.
 func (a *App) registerJobsModules(ctx context.Context) error {
 	registrar := newJobRegistrar(a)
 	for _, mod := range a.orderedModules {
@@ -141,18 +150,20 @@ func (a *App) registerJobsModules(ctx context.Context) error {
 	return nil
 }
 
+// runBuiltins starts built-in runtimes under the shared errgroup.
 func (a *App) runBuiltins(g *errgroup.Group, ctx context.Context) {
 	if a.rpc != nil {
 		g.Go(func() error { return a.rpc.Run(ctx) })
 	}
-	if a.http != nil {
-		g.Go(func() error { return a.http.Run(ctx) })
+	if a.api != nil {
+		g.Go(func() error { return a.api.Run(ctx) })
 	}
 	if a.jobs != nil {
 		g.Go(func() error { return a.jobs.Run(ctx) })
 	}
 }
 
+// runModules starts long-running module loops under the shared errgroup.
 func (a *App) runModules(g *errgroup.Group, ctx context.Context) {
 	for _, mod := range a.orderedModules {
 		runMod, ok := mod.(RunModule)
@@ -171,6 +182,7 @@ func (a *App) runModules(g *errgroup.Group, ctx context.Context) {
 	}
 }
 
+// activateCloser records a module closer once the module becomes active.
 func (a *App) activateCloser(mod Module) {
 	closeMod, ok := mod.(CloseModule)
 	if !ok {
@@ -184,6 +196,7 @@ func (a *App) activateCloser(mod Module) {
 	a.activeClosers = append(a.activeClosers, moduleCloser{id: id, fn: closeMod})
 }
 
+// closeActiveClosers closes active modules in reverse activation order.
 func (a *App) closeActiveClosers(ctx context.Context) error {
 	var errs []error
 	for i := len(a.activeClosers) - 1; i >= 0; i-- {
@@ -198,6 +211,7 @@ func (a *App) closeActiveClosers(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// execStartupHooks executes registered startup hooks in registration order.
 func (a *App) execStartupHooks(ctx context.Context) error {
 	for _, h := range a.startupHooks {
 		if err := h(ctx, a); err != nil {
@@ -207,6 +221,7 @@ func (a *App) execStartupHooks(ctx context.Context) error {
 	return nil
 }
 
+// execShutdownHooks executes registered shutdown hooks in registration order.
 func (a *App) execShutdownHooks(ctx context.Context) error {
 	var errs []error
 	for _, h := range a.shutdownHooks {
@@ -217,6 +232,8 @@ func (a *App) execShutdownHooks(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// shutdown stops built-in runtimes, closes active modules, runs shutdown hooks,
+// and releases owned resources.
 func (a *App) shutdown() error {
 	var shutdownErr error
 	a.shutdownOnce.Do(func() {
@@ -253,11 +270,12 @@ func (a *App) shutdown() error {
 	return shutdownErr
 }
 
+// stopBuiltins stops built-in runtimes.
 func (a *App) stopBuiltins(ctx context.Context) []error {
 	var errs []error
-	if a.http != nil {
-		if err := a.http.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("stop http runtime: %w", err))
+	if a.api != nil {
+		if err := a.api.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("stop api runtime: %w", err))
 		}
 	}
 	if a.rpc != nil {
@@ -273,6 +291,7 @@ func (a *App) stopBuiltins(ctx context.Context) []error {
 	return errs
 }
 
+// resolveModuleOrder returns modules in dependency order.
 func resolveModuleOrder(mods []Module) ([]Module, error) {
 	if len(mods) == 0 {
 		return nil, nil

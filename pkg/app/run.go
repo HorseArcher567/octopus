@@ -1,5 +1,8 @@
 package app
 
+// This file provides convenience entry points for constructing and running an
+// application from configuration.
+
 import (
 	"context"
 	"errors"
@@ -8,6 +11,7 @@ import (
 	"syscall"
 )
 
+// runOptions collects settings for the package-level Run helper.
 type runOptions struct {
 	ctx           context.Context
 	signals       []os.Signal
@@ -89,6 +93,7 @@ func MustRun(configPath string, mods []Module, opts ...RunOption) {
 	}
 }
 
+// runWithSignals runs a using a context canceled by process signals.
 func runWithSignals(a *App, sig []os.Signal) error {
 	ctx, stop := signal.NotifyContext(context.Background(), sig...)
 	defer stop()

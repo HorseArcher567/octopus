@@ -19,7 +19,7 @@ func (m *APIModule) ID() string { return "api" }
 
 func (m *APIModule) DependsOn() []string { return []string{"service"} }
 
-func (m *APIModule) RegisterHTTP(_ context.Context, r app.HTTPRegistrar) error {
+func (m *APIModule) RegisterAPI(_ context.Context, r app.APIRegistrar) error {
 	var userSvc *service.UserService
 	var orderSvc *service.OrderService
 	var productSvc *service.ProductService
@@ -29,7 +29,7 @@ func (m *APIModule) RegisterHTTP(_ context.Context, r app.HTTPRegistrar) error {
 	r.MustResolve(&productSvc)
 
 	log := r.Logger()
-	return r.RegisterHTTP(func(engine *api.Engine) {
+	return r.RegisterAPI(func(engine *api.Engine) {
 		httpx.RegisterRoutes(
 			engine,
 			httpx.NewUserHandler(userSvc, log),

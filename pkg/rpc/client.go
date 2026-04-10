@@ -1,5 +1,8 @@
 package rpc
 
+// This file contains low-level gRPC client dialing helpers used by the RPC
+// runtime.
+
 import (
 	"fmt"
 

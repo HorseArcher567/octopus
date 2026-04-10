@@ -22,6 +22,9 @@ type Server struct {
 	log    *xlog.Logger
 	config *ServerConfig
 
+	defaultMiddleware bool
+	extraMiddleware   []gin.HandlerFunc
+
 	engine     *gin.Engine
 	httpServer *http.Server
 }
@@ -43,8 +46,9 @@ func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server,
 	}
 
 	s := &Server{
-		log:    log,
-		config: config,
+		log:               log,
+		config:            config,
+		defaultMiddleware: true,
 	}
 
 	for _, opt := range opts {
@@ -53,11 +57,16 @@ func NewServer(log *xlog.Logger, config *ServerConfig, opts ...Option) (*Server,
 
 	gin.SetMode(config.Mode)
 	s.engine = gin.New()
-	s.engine.Use(
-		middleware.LoggerInjector(s.log),
-		middleware.Recovery(),
-		middleware.Logging(),
-	)
+	if s.defaultMiddleware {
+		s.engine.Use(
+			middleware.LoggerInjector(s.log),
+			middleware.Recovery(),
+			middleware.Logging(),
+		)
+	}
+	if len(s.extraMiddleware) > 0 {
+		s.engine.Use(s.extraMiddleware...)
+	}
 
 	// Mount pprof routes if enabled.
 	if config.EnablePProf {

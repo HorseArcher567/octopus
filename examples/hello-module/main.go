@@ -13,8 +13,8 @@ type helloModule struct{}
 
 func (m *helloModule) ID() string { return "hello" }
 
-func (m *helloModule) RegisterHTTP(_ context.Context, r app.HTTPRegistrar) error {
-	return r.RegisterHTTP(func(engine *api.Engine) {
+func (m *helloModule) RegisterAPI(_ context.Context, r app.APIRegistrar) error {
+	return r.RegisterAPI(func(engine *api.Engine) {
 		engine.GET("/hello", func(c *gin.Context) {
 			c.JSON(200, gin.H{"message": "hello from hello-module"})
 		})

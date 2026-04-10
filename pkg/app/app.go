@@ -1,11 +1,14 @@
+// Package app provides Octopus application orchestration, bootstrap assembly,
+// phased module execution, and lifecycle management.
 package app
 
 import (
 	"context"
+	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/telemetry"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
-	"sync"
 )
 
 // StartupHook is executed before components are started.
@@ -26,10 +29,10 @@ func WithRPCRuntime(rt RPCRuntime) Option {
 	}
 }
 
-// WithHTTPRuntime injects the HTTP runtime.
-func WithHTTPRuntime(rt HTTPRuntime) Option {
+// WithAPIRuntime injects the API runtime.
+func WithAPIRuntime(rt APIRuntime) Option {
 	return func(a *App) {
-		a.http = rt
+		a.api = rt
 	}
 }
 
@@ -47,6 +50,13 @@ func WithResourceRuntime(rt ResourceRuntime) Option {
 	}
 }
 
+// WithTelemetry injects the telemetry runtime.
+func WithTelemetry(rt *telemetry.Runtime) Option {
+	return func(a *App) {
+		a.telemetry = rt
+	}
+}
+
 // WithShutdownTimeout overrides the default shutdown timeout.
 func WithShutdownTimeout(timeout time.Duration) Option {
 	return func(a *App) {
@@ -59,9 +69,10 @@ type App struct {
 	log *xlog.Logger
 
 	rpc       RPCRuntime
-	http      HTTPRuntime
+	api       APIRuntime
 	jobs      JobRuntime
 	resources ResourceRuntime
+	telemetry *telemetry.Runtime
 	container *container
 
 	shutdownTimeout time.Duration

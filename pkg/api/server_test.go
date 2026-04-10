@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -59,6 +60,68 @@ func TestServerRegisterRunAndStop(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("server did not stop in time")
 	}
+}
+
+func TestServerWithMiddleware(t *testing.T) {
+	log := xlog.MustNew(nil)
+	defer log.Close()
+
+	server, err := NewServer(log, &ServerConfig{
+		Name: "api-test",
+		Host: "127.0.0.1",
+		Port: freePort(t),
+		Mode: "release",
+	}, WithMiddleware(func(c *gin.Context) {
+		c.Writer.Header().Set("X-Test-Middleware", "on")
+		c.Next()
+	}))
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
+	server.Engine().GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	w := httptest.NewRecorder()
+	server.Engine().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("X-Test-Middleware"); got != "on" {
+		t.Fatalf("expected middleware header %q, got %q", "on", got)
+	}
+}
+
+func TestServerWithoutDefaultMiddleware(t *testing.T) {
+	log := xlog.MustNew(nil)
+	defer log.Close()
+
+	server, err := NewServer(log, &ServerConfig{
+		Name: "api-test",
+		Host: "127.0.0.1",
+		Port: freePort(t),
+		Mode: "release",
+	}, WithoutDefaultMiddleware())
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
+	server.Engine().GET("/panic", func(c *gin.Context) {
+		panic("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	w := httptest.NewRecorder()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when default recovery middleware is disabled")
+		}
+	}()
+	server.Engine().ServeHTTP(w, req)
 }
 
 func freePort(t *testing.T) int {

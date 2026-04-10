@@ -10,7 +10,7 @@ func TestClientFactoryReuseAndClose(t *testing.T) {
 	log := xlog.MustNew(nil)
 	defer log.Close()
 
-	factory := NewClientFactory(log, nil, nil)
+	factory := NewClientFactory(log, nil, nil, nil)
 	target := "127.0.0.1:65535"
 
 	c1, err := factory.Client(target)
@@ -45,7 +45,7 @@ func TestClientFactoryRequiresEtcdClientForEtcdTargets(t *testing.T) {
 	log := xlog.MustNew(nil)
 	defer log.Close()
 
-	factory := NewClientFactory(log, nil, nil)
+	factory := NewClientFactory(log, nil, nil, nil)
 	if _, err := factory.Client("etcd:///demo"); err == nil {
 		t.Fatal("expected etcd target to fail without etcd client")
 	}

@@ -1,11 +1,6 @@
 package resource
 
-import (
-	"testing"
-
-	"github.com/HorseArcher567/octopus/pkg/database"
-	redisclient "github.com/HorseArcher567/octopus/pkg/redis"
-)
+import "testing"
 
 func TestManagerCloseNil(t *testing.T) {
 	var manager *Manager
@@ -16,14 +11,23 @@ func TestManagerCloseNil(t *testing.T) {
 
 func TestManagerMissingNamedResources(t *testing.T) {
 	manager := &Manager{
-		mysql: make(map[string]*database.DB),
-		redis: make(map[string]*redisclient.Client),
+		resources: make(map[string]map[string]entry),
 	}
 
-	if _, err := manager.MySQL("primary"); err == nil {
+	if _, err := manager.Get(KindMySQL, "primary"); err == nil {
 		t.Fatal("expected missing mysql resource error")
 	}
-	if _, err := manager.Redis("cache"); err == nil {
+	if _, err := manager.Get(KindRedis, "cache"); err == nil {
 		t.Fatal("expected missing redis resource error")
+	}
+}
+
+func TestManagerRegisterAndList(t *testing.T) {
+	manager := &Manager{resources: make(map[string]map[string]entry)}
+	if err := manager.Register("custom", "main", struct{}{}, nil); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if got := manager.List("custom"); len(got) != 1 || got[0] != "main" {
+		t.Fatalf("unexpected list: %v", got)
 	}
 }
