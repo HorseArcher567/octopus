@@ -40,7 +40,7 @@ func New(cfg *Config) (*Client, error) {
 	})
 
 	client := &Client{Client: c}
-	if err := client.PingTimeout(defaultPingTimeout); err != nil {
+	if err := client.PingTimeout(cfg.PingTimeout); err != nil {
 		_ = client.Close()
 		return nil, err
 	}
@@ -59,6 +59,9 @@ func MustNew(cfg *Config) *Client {
 
 // PingTimeout verifies the connection to Redis with a timeout.
 func (c *Client) PingTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = defaultPingTimeout
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return c.Ping(ctx).Err()

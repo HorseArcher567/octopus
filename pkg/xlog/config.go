@@ -6,6 +6,9 @@ package xlog
 
 // Config controls logger construction behavior.
 type Config struct {
+	// Name is the logical logger name used in configuration and dependency wiring.
+	Name string `yaml:"name" json:"name" toml:"name"`
+
 	// Level is the minimum enabled level. Supported values: debug/info/warn/error.
 	// Empty means info.
 	Level string `yaml:"level" json:"level" toml:"level"`

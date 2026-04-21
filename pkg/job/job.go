@@ -9,6 +9,10 @@ import (
 
 type Func func(ctx context.Context, log *xlog.Logger) error
 
+type SchedulerConfig struct {
+	Logger string `yaml:"logger" json:"logger" toml:"logger"`
+}
+
 type Job struct {
 	// Job name
 	Name string `yaml:"name" json:"name" toml:"name"`

@@ -1,87 +1,161 @@
 # pkg/app
 
-`pkg/app` is the orchestration kernel of Octopus.
+`pkg/app` is the minimal runtime kernel of Octopus.
 
-It is responsible for:
+It is intentionally small.
 
-- module graph ordering
-- phased module execution (`Build`, `RegisterRPC`, `RegisterAPI`, `RegisterJobs`, `Run`)
-- startup and shutdown hooks
-- bootstrap-based runtime assembly
-- wiring phase-specific capabilities over injected runtimes
+Its responsibility is only to:
 
-Key concepts:
+- hold the application logger
+- hold the shared dependency store owned by the app
+- hold runtime services
+- hold startup and shutdown hooks
+- run startup, service execution, and shutdown cleanly
 
-- `Bootstrap`: assembled framework runtimes before `App` construction
-- `Assemble(...)`: builds logger / rpc / api / resources / health / telemetry from config
-- `NewFromBootstrap(...)`: creates an `App` from assembled runtimes
-- `BuildContext`: exposes grouped capabilities instead of concrete infrastructure shortcuts
-- `Container`: a `pkg/di` capability that supports unnamed and named bindings, single and multi-resolution, and invoke
+`pkg/app` does **not** own:
 
-`pkg/app` intentionally does not own low-level API/gRPC/resource/DI implementation details; it coordinates them.
+- config loading
+- resource setup logic
+- application assembly
+- API/RPC/Jobs registration
+- business integration
 
-## Architecture
+Those concerns belong outside `pkg/app`.
 
-`pkg/app` is organized in three layers:
+---
 
-```text
-pkg/app
-├── Layer 1: Public orchestration surface
-│   ├── app.go
-│   ├── module.go
-│   ├── run.go
-│   └── lifecycle.go
-│
-├── Layer 2: Assembly / bootstrap
-│   └── bootstrap.go
-│
-└── Layer 3: Runtime capability adapters
-    └── runtime.go
+## Core concepts
+
+### `App`
+
+`App` is the lifecycle orchestrator.
+
+It runs:
+
+1. startup hooks
+2. services
+3. shutdown sequence
+4. store close
+
+### `Service`
+
+A `Service` is any long-running runtime unit managed by `App`.
+
+Typical examples:
+
+- API server
+- RPC server
+- job scheduler
+- consumer
+- watcher
+- worker loop
+
+```go
+type Service interface {
+    Name() string
+    Run(ctx context.Context) error
+    Stop(ctx context.Context) error
+}
 ```
 
-### Layer 1: Public orchestration surface
+### Hooks
 
-This layer defines the main application object, module contracts, execution phases, and lifecycle management.
+Hooks are one-shot lifecycle callbacks.
 
-- `app.go`: `App` construction and core state
-- `module.go`: module contracts and phase capability interfaces
-- `run.go`: phased module execution and runtime startup
-- `lifecycle.go`: startup/shutdown hook handling
+```go
+type StartupHook func(ctx context.Context) error
+type ShutdownHook func(ctx context.Context) error
+```
 
-### Layer 2: Assembly / bootstrap
+Startup hooks run before services start.
+Shutdown hooks run after services have been stopped and before the store is closed.
 
-This layer assembles framework runtimes from configuration before the `App` is created.
+### Store ownership
 
-- `bootstrap.go`: `Bootstrap`, bootstrap options, `Load`, `FromConfig`, `Assemble`, `NewFromBootstrap`
+`App` owns the shared `store.Store` when one is provided.
 
-### Layer 3: Runtime capability adapters
+The store is closed during shutdown, after services stop and shutdown hooks run.
+Shutdown hooks therefore should be treated as post-service cleanup hooks.
+This allows shared resources such as loggers, databases, redis clients, and etcd clients to be released in one place.
 
-This layer defines the runtime abstraction interfaces consumed by `App` and adapts them into build/register phase capabilities.
-
-- `runtime.go`: runtime interfaces, `BuildContext` adapters, RPC/API/job registrars, and `pkg/di` integration
+---
 
 ## Runtime flow
 
-```text
-config
-  -> bootstrap.go / Load / FromConfig / Assemble
-  -> app.go / NewFromBootstrap / New
-  -> run.go / phased module execution
-  -> lifecycle.go / shutdown
-```
-
-## Module flow
+A typical runtime flow is:
 
 ```text
-run.go
-  -> module.Build(...)
-  -> runtime.go / BuildContext
-  -> container/resources/rpc/telemetry capabilities
+startup hooks
+  -> run services
+  -> wait for context cancellation or service error
+  -> stop services
+  -> shutdown hooks
+  -> close store
 ```
 
-```text
-run.go
-  -> module.RegisterRPC(...)  -> runtime.go / rpcRegistrar  -> RPCRuntime
-  -> module.RegisterAPI(...) -> runtime.go / apiRegistrar -> APIRuntime
-  -> module.RegisterJobs(...) -> runtime.go / jobRegistrar  -> JobRuntime
+Recommended ordering semantics:
+
+- startup hooks: forward order
+- services run: concurrent
+- services stop: reverse order
+- shutdown hooks: reverse order, after services have stopped
+- store close: final step
+
+---
+
+## Public API
+
+```go
+type Config struct {
+    Logger          string
+    ShutdownTimeout time.Duration
+}
+
+func New(log *xlog.Logger, opts ...Option) *App // if log is nil, a default logger is created
+func WithStore(s store.Store) Option
+func WithShutdownTimeout(timeout time.Duration) Option
+func (a *App) AddServices(services ...Service) *App
+func (a *App) OnStartup(h StartupHook) *App
+func (a *App) OnShutdown(h ShutdownHook) *App
+func (a *App) Run(ctx context.Context) error
 ```
+
+This package is meant to stay boring, small, and dependable.
+
+---
+
+## Example
+
+```go
+a := app.New(log, app.WithStore(st))
+a.AddServices(apiService, rpcService, jobsService)
+a.OnStartup(func(ctx context.Context) error {
+    return nil
+})
+a.OnShutdown(func(ctx context.Context) error {
+    return nil
+})
+
+if err := a.Run(context.Background()); err != nil {
+    panic(err)
+}
+```
+
+In real applications, `App` is usually constructed by `pkg/assemble`, not directly by business code.
+
+---
+
+## Relationship with `pkg/assemble`
+
+`pkg/app` is the runtime kernel.
+
+`pkg/assemble` is the application construction facade.
+
+The intended relationship is:
+
+```text
+assemble builds the app
+app runs the app
+```
+
+That boundary should remain stable.

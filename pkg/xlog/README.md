@@ -1,6 +1,6 @@
 # pkg/xlog
 
-`pkg/xlog` provides the logger runtime used by Octopus.
+`pkg/xlog` provides the logger used by Octopus.
 
 It offers:
 

@@ -8,6 +8,8 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+const defaultPingTimeout = 5 * time.Second
+
 // DB wraps a sqlx.DB instance with unified configuration and initialization.
 // It embeds *sqlx.DB so all sqlx methods are directly available.
 type DB struct {
@@ -38,15 +40,13 @@ func New(cfg *Config) (*DB, error) {
 	db.SetConnMaxLifetime(cfg.GetConnMaxLifetime())
 	db.SetConnMaxIdleTime(cfg.GetConnMaxIdleTime())
 
-	// Verify connection with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	wrapped := &DB{DB: db}
+	if err := wrapped.PingTimeout(cfg.PingTimeout); err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	return &DB{DB: db}, nil
+	return wrapped, nil
 }
 
 // MustNew creates a new database connection and panics if an error occurs.
@@ -60,7 +60,15 @@ func MustNew(cfg *Config) *DB {
 
 // Ping verifies the connection to the database is still alive with a timeout.
 func (db *DB) Ping() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	return db.PingTimeout(0)
+}
+
+// PingTimeout verifies the connection to the database is still alive with a timeout.
+func (db *DB) PingTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = defaultPingTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return db.PingContext(ctx)
 }

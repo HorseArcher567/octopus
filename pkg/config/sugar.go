@@ -5,12 +5,12 @@ import (
 )
 
 // ============================================================================
-// 包级加载函数 - 便捷接口
+// Package-level helpers
 // ============================================================================
 
-// Load 加载单个配置文件（自动识别格式），默认支持环境变量替换
-// 环境变量格式: ${ENV_VAR} 或 ${ENV_VAR:default_value}
-// 这是最常用的加载方式，适合大多数场景
+// Load loads a single config file with automatic format detection.
+// Environment variables are expanded by default using ${ENV_VAR} or ${ENV_VAR:default_value}.
+// This is the most common entry point.
 func Load(path string) (*Config, error) {
 	format := detectFormat(path)
 	if format == FormatUnknown {
@@ -26,8 +26,7 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadWithoutEnv 加载配置文件但不替换环境变量
-// 适用于不需要环境变量替换的场景
+// LoadWithoutEnv loads a config file without environment variable expansion.
 func LoadWithoutEnv(path string) (*Config, error) {
 	cfg := New()
 	if err := cfg.Load(path); err != nil {
@@ -36,7 +35,7 @@ func LoadWithoutEnv(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadFromBytes 从字节流加载配置
+// LoadFromBytes loads config from raw bytes.
 func LoadFromBytes(data []byte, format Format) (*Config, error) {
 	cfg := New()
 	if err := cfg.LoadBytes(data, format); err != nil {
@@ -46,11 +45,11 @@ func LoadFromBytes(data []byte, format Format) (*Config, error) {
 }
 
 // ============================================================================
-// Must* 系列方法 - 失败时 panic，适用于启动阶段
+// Must* helpers
 // ============================================================================
 
-// MustLoad 加载配置文件（默认支持环境变量替换），失败时 panic
-// 适用于程序启动阶段，配置加载失败时程序无法继续运行
+// MustLoad loads a config file and panics on failure.
+// Environment variable expansion is enabled by default.
 func MustLoad(path string) *Config {
 	cfg, err := Load(path)
 	if err != nil {
@@ -59,8 +58,7 @@ func MustLoad(path string) *Config {
 	return cfg
 }
 
-// MustLoadWithoutEnv 加载配置文件但不替换环境变量，失败时 panic
-// 适用于程序启动阶段，配置加载失败时程序无法继续运行
+// MustLoadWithoutEnv loads a config file without environment variable expansion and panics on failure.
 func MustLoadWithoutEnv(path string) *Config {
 	cfg, err := LoadWithoutEnv(path)
 	if err != nil {
@@ -69,8 +67,7 @@ func MustLoadWithoutEnv(path string) *Config {
 	return cfg
 }
 
-// MustUnmarshal 加载配置（默认支持环境变量替换）并直接解析到结构体，失败时 panic
-// 这是最便捷的方式，适合在 main 函数中使用
+// MustUnmarshal loads config, unmarshals it into target, and panics on failure.
 func MustUnmarshal(path string, target interface{}) {
 	cfg := MustLoad(path)
 	if err := cfg.Unmarshal(target); err != nil {
@@ -78,8 +75,8 @@ func MustUnmarshal(path string, target interface{}) {
 	}
 }
 
-// MustUnmarshalWithoutEnv 加载配置（不支持环境变量替换）并解析到结构体，失败时 panic
-// 适用于不需要环境变量替换的场景
+// MustUnmarshalWithoutEnv loads config without environment variable expansion,
+// unmarshals it into target, and panics on failure.
 func MustUnmarshalWithoutEnv(path string, target interface{}) {
 	cfg := MustLoadWithoutEnv(path)
 	if err := cfg.Unmarshal(target); err != nil {

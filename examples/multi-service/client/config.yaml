@@ -1,14 +1,19 @@
 logger:
-  level: info
-  format: text
-  output: stdout
+  - name: default
+    level: info
+    format: text
+    output: stdout
+
+app:
+  logger: default
 
 etcd:
-  endpoints:
-    - ${ETCD_ENDPOINT:localhost:2379}
-  dialTimeout: 5s
-  username: ${ETCD_USERNAME:root}
-  password: ${ETCD_PASSWORD:123456}
+  - name: default
+    endpoints:
+      - ${ETCD_ENDPOINT:localhost:2379}
+    dialTimeout: 5s
+    username: ${ETCD_USERNAME:root}
+    password: ${ETCD_PASSWORD:123456}
 
 rpcClientOptions:
   loadBalancingPolicy: round_robin

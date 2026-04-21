@@ -7,6 +7,9 @@ import (
 
 // Config is the configuration for Redis connection.
 type Config struct {
+	// Name is the logical instance name used when publishing the client into the shared store.
+	Name string `yaml:"name" json:"name" toml:"name"`
+
 	// Addr is the Redis server address in host:port format.
 	Addr string `yaml:"addr" json:"addr" toml:"addr"`
 
@@ -36,6 +39,9 @@ type Config struct {
 
 	// WriteTimeout is the timeout for socket writes.
 	WriteTimeout time.Duration `yaml:"writeTimeout" json:"writeTimeout" toml:"writeTimeout"`
+
+	// PingTimeout is the startup ping timeout.
+	PingTimeout time.Duration `yaml:"pingTimeout" json:"pingTimeout" toml:"pingTimeout"`
 }
 
 // Validate validates the configuration.
@@ -74,6 +80,10 @@ func (c *Config) Validate() error {
 
 	if c.WriteTimeout < 0 {
 		return errors.New("redis: writeTimeout cannot be negative")
+	}
+
+	if c.PingTimeout < 0 {
+		return errors.New("redis: pingTimeout cannot be negative")
 	}
 
 	return nil

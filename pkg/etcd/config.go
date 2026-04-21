@@ -9,6 +9,9 @@ import (
 
 // Config is the configuration for etcd client connection.
 type Config struct {
+	// Name is the logical instance name used when publishing the client into the shared store.
+	Name string `yaml:"name" json:"name" toml:"name"`
+
 	// Endpoints is the list of etcd node addresses.
 	Endpoints []string `yaml:"endpoints" json:"endpoints" toml:"endpoints"`
 

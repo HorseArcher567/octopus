@@ -19,6 +19,10 @@ import (
 //	writeTimeout: 10s
 //	idleTimeout: 60s
 type ServerConfig struct {
+	// Logger is the name of the logger to use for the API server.
+	// If empty, the app logger will be used.
+	Logger string `yaml:"logger" json:"logger" toml:"logger"`
+
 	// AppName 应用名称，用于日志等标识。
 	Name string `yaml:"name" json:"name" toml:"name"`
 

@@ -1,15 +1,12 @@
 package rpc
 
-// This file contains low-level gRPC client dialing helpers used by the RPC
-// runtime.
-
 import (
 	"fmt"
 
 	"google.golang.org/grpc"
 )
 
-// NewClient is the low-level dial helper used by the RPC runtime.
+// NewClient creates a gRPC client connection.
 func NewClient(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {

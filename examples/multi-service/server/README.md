@@ -2,20 +2,16 @@
 
 See the project overview in the repository root [`README.md`](../../../README.md).
 
-This example is a modular single process app, not a true multi-process microservice system.
+This example is a single-process reference application.
 It demonstrates how one Octopus app exposes multiple business services over both gRPC and HTTP.
 
 ## Run
 
 ```bash
-# optional
-cp .env.example .env
-export $(grep -v '^#' .env | xargs)
-
-go run ./cmd/server -config configs/config.dev.yaml
+go run . -config config.yaml
 ```
 
-If you need to bootstrap the schema manually:
+If you need to initialize the schema manually:
 
 ```bash
 mysql -uroot -p octopus < schema.sql
@@ -23,34 +19,46 @@ mysql -uroot -p octopus < schema.sql
 
 ## Structure
 
-- `cmd/server`: process entrypoint
-- `internal/bootstrap`: module lifecycle (infra/service/rpc/api modules)
-- `internal/domain`: domain models
-- `internal/repository`: data access layer
-- `internal/service`: business service layer
-- `internal/transport/grpc`: gRPC handlers and mapping
-- `internal/transport/http`: HTTP routes
+- `main.go`: process entrypoint
+- `internal/user`: user business module
+- `internal/order`: order business module
+- `internal/product`: product business module
+- `internal/shared`: small shared assembly helpers
 - `configs`: development and template configs
 
-## Lifecycle
+Each business module keeps its own assembly, repository, service, and HTTP/gRPC transport code together.
+This keeps the example organized by business capability instead of global technical layers.
 
-The example uses 4 `app.Module`s:
+## Assembly
 
-1. `infra`: initialize DB and build repositories
-2. `service`: build business services from repositories
-3. `rpc`: resolve services and register gRPC handlers
-4. `api`: resolve services and register HTTP routes
+The example is assembled through business-capability actions:
 
-Startup sequence in `cmd/server/main.go`:
+- `shared.AssembleHello`
+- `user.Assemble`
+- `order.Assemble`
+- `product.Assemble`
+
+Application entry in `main.go`:
 
 ```go
-app.MustRun(configFile, []app.Module{
-    bootstrap.NewInfraModule(),
-    bootstrap.NewServiceModule(),
-    bootstrap.NewRPCModule(),
-    bootstrap.NewAPIModule(),
-})
+a, err := assemble.Load(
+    configFile,
+    assemble.With(
+        shared.AssembleHello,
+        user.Assemble,
+        order.Assemble,
+        product.Assemble,
+    ),
+)
+if err != nil {
+    return err
+}
+
+return a.Run(ctx)
 ```
+
+Each module assembles its own repository, service, and HTTP/gRPC registrations from shared infrastructure dependencies in `store.Store`.
+Business objects are not written back into the store as container-managed dependencies.
 
 ## Exposed Endpoints
 
@@ -73,4 +81,4 @@ OCTOPUS_TEST_MYSQL_DSN='root:123456@tcp(127.0.0.1:3306)/octopus?charset=utf8mb4&
 GOCACHE=/tmp/go-build go test ./tests/e2e -v
 ```
 
-The e2e test now applies `schema.sql` automatically before startup.
+The e2e test applies `schema.sql` automatically before startup.

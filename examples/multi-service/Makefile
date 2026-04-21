@@ -11,7 +11,7 @@ proto:
 # 构建服务器
 build-server: proto
 	@echo "Building server..."
-	@go build -o bin/server ./server/cmd/server
+	@go build -o bin/server ./server
 	@echo "✅ Server built: bin/server"
 
 # 构建客户端
@@ -26,7 +26,7 @@ build: build-server build-client
 # 运行服务器
 run-server: proto
 	@echo "Starting multi-service server..."
-	@go run ./server/cmd/server -config server/configs/config.dev.yaml
+	@go run ./server -config server/config.yaml
 
 # 运行客户端
 run-client: proto

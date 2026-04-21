@@ -1,13 +1,11 @@
 # pkg/rpc
 
-`pkg/rpc` provides the gRPC runtime used by Octopus.
+`pkg/rpc` provides the gRPC server and thin client helpers used by Octopus.
 
 Key pieces:
 
 - `Server`: inbound gRPC server lifecycle
-- `ClientFactory`: cached outbound clients
-- `Runtime`: combines server, client factory, and discovery integration
-- `resolver/`: built-in resolver implementations such as `direct:///`
+- `NewClient(...)`: thin outbound dial helper
 
 Server extension points:
 
@@ -19,9 +17,18 @@ Server extension points:
 - `WithStatsHandlers(...)`
 - `WithRegistrar(...)`
 
-Discovery status:
+Discovery usage:
 
-- RPC server registration now uses the top-level discovery registrar abstraction
-- RPC client discovery prefers provider-backed gRPC resolver builders when available
-- `pkg/discovery` is now the primary abstraction layer
-- some legacy etcd-specific code still remains under `pkg/rpc/registry` and `pkg/rpc/resolver` as transitional compatibility paths
+- RPC server registration uses `pkg/discovery.Registrar`
+- RPC client dialing is explicit
+- callers pass `grpc.WithResolvers(...)` using builders from `pkg/discovery`
+
+Example:
+
+```go
+resolver := discovery.NewDirectResolver(log)
+conn, err := rpc.NewClient(
+    "direct:///127.0.0.1:9001,127.0.0.1:9002",
+    grpc.WithResolvers(resolver.Builder()),
+)
+```

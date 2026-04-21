@@ -1,6 +1,6 @@
 # pkg/api
 
-`pkg/api` provides the HTTP runtime used by Octopus.
+`pkg/api` provides the HTTP server used by Octopus.
 
 It wraps a Gin engine with:
 
@@ -17,4 +17,4 @@ Default middleware stack:
 - recovery
 - request logging
 
-Health and telemetry routes such as `/health` and `/metrics` are mounted by the app assembly layer, not hard-coded in the HTTP runtime itself.
+Health and telemetry routes such as `/health` and `/metrics` are mounted by the app setup/bootstrap layer, not hard-coded in the HTTP server itself.

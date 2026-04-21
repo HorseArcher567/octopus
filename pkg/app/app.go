@@ -1,60 +1,45 @@
-// Package app provides Octopus application orchestration, bootstrap assembly,
-// phased module execution, and lifecycle management.
 package app
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
-	"github.com/HorseArcher567/octopus/pkg/di"
-	"github.com/HorseArcher567/octopus/pkg/telemetry"
+	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
-// StartupHook is executed before components are started.
+const defaultShutdownTimeout = 30 * time.Second
+
+// Service is a long-running runtime unit managed by App.
+type Service interface {
+	Name() string
+	Run(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
+// StartupHook is executed before services start.
 // If it returns an error, startup is aborted.
-type StartupHook func(ctx context.Context, a *App) error
+type StartupHook func(ctx context.Context) error
 
 // ShutdownHook is executed during shutdown.
 // Even if it returns an error, subsequent shutdown hooks continue to run.
-type ShutdownHook func(ctx context.Context, a *App) error
+type ShutdownHook func(ctx context.Context) error
+
+// Config defines application runtime policy loaded from the app config section.
+type Config struct {
+	Logger          string        `yaml:"logger" json:"logger" toml:"logger"`
+	ShutdownTimeout time.Duration `yaml:"shutdownTimeout" json:"shutdownTimeout" toml:"shutdownTimeout"`
+}
 
 // Option customizes an App instance.
 type Option func(*App)
 
-// WithRPCRuntime injects the RPC runtime.
-func WithRPCRuntime(rt RPCRuntime) Option {
+// WithStore injects the shared dependency store owned by the app.
+func WithStore(s store.Store) Option {
 	return func(a *App) {
-		a.rpc = rt
-	}
-}
-
-// WithAPIRuntime injects the API runtime.
-func WithAPIRuntime(rt APIRuntime) Option {
-	return func(a *App) {
-		a.api = rt
-	}
-}
-
-// WithJobRuntime injects the job runtime.
-func WithJobRuntime(rt JobRuntime) Option {
-	return func(a *App) {
-		a.jobs = rt
-	}
-}
-
-// WithResourceRuntime injects the resource runtime.
-func WithResourceRuntime(rt ResourceRuntime) Option {
-	return func(a *App) {
-		a.resources = rt
-	}
-}
-
-// WithTelemetry injects the telemetry runtime.
-func WithTelemetry(rt *telemetry.Runtime) Option {
-	return func(a *App) {
-		a.telemetry = rt
+		a.store = s
 	}
 }
 
@@ -65,49 +50,51 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 	}
 }
 
-// App encapsulates module orchestration and application lifecycle.
+// App is the minimal lifecycle kernel of Octopus.
 type App struct {
-	log *xlog.Logger
+	log   *xlog.Logger
+	store store.Store
 
-	rpc       RPCRuntime
-	api       APIRuntime
-	jobs      JobRuntime
-	resources ResourceRuntime
-	telemetry *telemetry.Runtime
-	container di.Container
+	services      []Service
+	startupHooks  []StartupHook
+	shutdownHooks []ShutdownHook
 
 	shutdownTimeout time.Duration
-	startupHooks    []StartupHook
-	shutdownHooks   []ShutdownHook
-
-	modules         []Module
-	orderedModules  []Module
-	activeClosers   []moduleCloser
-	activeCloserIDs map[string]struct{}
 
 	shutdownOnce sync.Once
 	runMu        sync.Mutex
 	hasRun       bool
 }
 
-type moduleCloser struct {
-	id string
-	fn CloseModule
-}
-
-// New creates a new App from explicitly injected runtimes.
+// New creates a new App from already assembled runtime inputs.
 func New(log *xlog.Logger, opts ...Option) *App {
 	if log == nil {
 		log = xlog.MustNew(nil)
 	}
-	a := &App{
-		log:             log,
-		container:       di.New(),
-		activeCloserIDs: make(map[string]struct{}),
-	}
+	a := &App{log: log}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(a)
+		}
+	}
+	return a
+}
+
+// Logger returns the application logger.
+func (a *App) Logger() *xlog.Logger {
+	return a.log
+}
+
+// Store returns the shared dependency store owned by the app.
+func (a *App) Store() store.Store {
+	return a.store
+}
+
+// AddServices appends runtime services to the app.
+func (a *App) AddServices(services ...Service) *App {
+	for _, svc := range services {
+		if svc != nil {
+			a.services = append(a.services, svc)
 		}
 	}
 	return a
@@ -129,12 +116,13 @@ func (a *App) OnShutdown(h ShutdownHook) *App {
 	return a
 }
 
-// Use registers one or more modules on the app instance.
-func (a *App) Use(mods ...Module) *App {
-	for _, m := range mods {
-		if m != nil {
-			a.modules = append(a.modules, m)
-		}
+// markRunOnce ensures Run is only executed once per App instance.
+func (a *App) markRunOnce() error {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.hasRun {
+		return errors.New("app: Run can only be called once")
 	}
-	return a
+	a.hasRun = true
+	return nil
 }

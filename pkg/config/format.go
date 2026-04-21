@@ -11,22 +11,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Format 配置文件格式
+// Format identifies a configuration serialization format.
 type Format string
 
 const (
 	FormatJSON Format = "json"
 	FormatYAML Format = "yaml"
 	FormatTOML Format = "toml"
-	// FormatUnknown 表示未知或无法从上下文推断的格式
-	// 在需要自动检测的场景下，通常会先返回 FormatUnknown，然后由调用方决定如何处理
+	// FormatUnknown indicates that the format is unknown or could not be inferred.
 	FormatUnknown Format = "unknown"
 )
 
-// parseFile 从文件解析配置
-// 注意：调用方需要在调用前确定并传入正确的 format
+// parseFile parses config from a file using the provided format.
 func parseFile(filepath string, format Format) (map[string]any, error) {
-	// 读取文件内容
 	data, err := os.ReadFile(filepath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -34,7 +31,7 @@ func parseFile(filepath string, format Format) (map[string]any, error) {
 	return parse(data, format)
 }
 
-// parse 解析字节流
+// parse parses config from raw bytes.
 func parse(data []byte, format Format) (map[string]any, error) {
 	switch format {
 	case FormatJSON:
@@ -48,7 +45,7 @@ func parse(data []byte, format Format) (map[string]any, error) {
 	}
 }
 
-// parseJSON 解析JSON格式
+// parseJSON parses JSON data.
 func parseJSON(data []byte) (map[string]any, error) {
 	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -57,7 +54,7 @@ func parseJSON(data []byte) (map[string]any, error) {
 	return result, nil
 }
 
-// parseYAML 解析YAML格式
+// parseYAML parses YAML data.
 func parseYAML(data []byte) (map[string]any, error) {
 	var result map[string]any
 	if err := yaml.Unmarshal(data, &result); err != nil {
@@ -66,7 +63,7 @@ func parseYAML(data []byte) (map[string]any, error) {
 	return result, nil
 }
 
-// parseTOML 解析TOML格式
+// parseTOML parses TOML data.
 func parseTOML(data []byte) (map[string]any, error) {
 	var result map[string]any
 	if err := toml.Unmarshal(data, &result); err != nil {
@@ -75,7 +72,7 @@ func parseTOML(data []byte) (map[string]any, error) {
 	return result, nil
 }
 
-// detectFormat 根据文件扩展名检测格式
+// detectFormat infers the format from a file extension.
 func detectFormat(filename string) Format {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
@@ -90,7 +87,7 @@ func detectFormat(filename string) Format {
 	}
 }
 
-// marshal 将map序列化为指定格式的字节流
+// marshal serializes config data into the requested format.
 func marshal(data map[string]any, format Format) ([]byte, error) {
 	switch format {
 	case FormatJSON:
@@ -109,7 +106,7 @@ func marshal(data map[string]any, format Format) ([]byte, error) {
 	}
 }
 
-// writeFile 将配置写入文件
+// writeFile writes config data to a file.
 func writeFile(filepath string, data map[string]any) error {
 	format := detectFormat(filepath)
 	if format == FormatUnknown {

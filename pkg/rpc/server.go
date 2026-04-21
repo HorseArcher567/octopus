@@ -8,7 +8,6 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/discovery"
 	"github.com/HorseArcher567/octopus/pkg/rpc/middleware"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/stats"
@@ -26,9 +25,8 @@ type Server struct {
 	streamInterceptors []grpc.StreamServerInterceptor
 	statsHandlers      []stats.Handler
 
-	registrar  discovery.Registrar
-	instance   *discovery.Instance
-	etcdClient *clientv3.Client
+	registrar discovery.Registrar
+	instance  *discovery.Instance
 }
 
 // MustNewServer creates a new Server and panics if initialization fails.
@@ -214,9 +212,9 @@ func (s *Server) registerInstance(ctx context.Context) error {
 		return fmt.Errorf("rpc: discovery registrar is not configured")
 	}
 	instance := discovery.Instance{
-		Service: s.config.Name,
-		Address: s.config.AdvertiseAddr,
-		Port:    s.config.Port,
+		Name: s.config.Name,
+		Host: s.config.AdvertiseAddr,
+		Port: s.config.Port,
 	}
 	if err := s.registrar.Register(ctx, instance); err != nil {
 		return err

@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// ===== 业务场景：电商系统用户订单 =====
+// ===== Business scenario: e-commerce order =====
 
-// 用户基础信息
+// Basic user info
 type UserInfo struct {
 	ID       int
 	Username string
@@ -15,7 +15,7 @@ type UserInfo struct {
 	Phone    string
 }
 
-// 地址信息
+// Address info
 type Address struct {
 	Street     string
 	City       string
@@ -24,7 +24,7 @@ type Address struct {
 	Country    string
 }
 
-// 商品信息
+// Product info
 type Product struct {
 	ID          int
 	Name        string
@@ -33,14 +33,14 @@ type Product struct {
 	Description string
 }
 
-// 订单项
+// Order item
 type OrderItem struct {
 	Product  Product
 	Quantity int
 	Subtotal float64
 }
 
-// 支付信息
+// Payment info
 type PaymentInfo struct {
 	Method      string
 	Amount      float64
@@ -49,7 +49,7 @@ type PaymentInfo struct {
 	Status      string
 }
 
-// 配送信息
+// Shipping info
 type ShippingInfo struct {
 	Address     Address
 	Method      string
@@ -57,14 +57,14 @@ type ShippingInfo struct {
 	Estimated   string
 }
 
-// 订单状态
+// Order status
 type OrderStatus struct {
 	Status    string
 	UpdatedAt time.Time
 	Notes     string
 }
 
-// 完整订单（5层嵌套结构）
+// Full order (5-level nested structure)
 type Order struct {
 	User        UserInfo
 	Items       []OrderItem
@@ -76,7 +76,7 @@ type Order struct {
 	CreatedAt   time.Time
 }
 
-// ===== 测试用例 =====
+// ===== Test cases =====
 
 func TestECommerceOrderDecoding(t *testing.T) {
 	decoder := New()
@@ -148,7 +148,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Fatalf("Order decoding failed: %v", err)
 		}
 
-		// 验证用户信息
+		// Verify user info
 		if order.User.ID != 1001 {
 			t.Errorf("Expected User.ID 1001, got %d", order.User.ID)
 		}
@@ -159,7 +159,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected User.Email 'john@example.com', got '%s'", order.User.Email)
 		}
 
-		// 验证订单项
+		// Verify order items
 		if len(order.Items) != 2 {
 			t.Errorf("Expected 2 items, got %d", len(order.Items))
 		}
@@ -173,7 +173,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected second item price 79.99, got %f", order.Items[1].Product.Price)
 		}
 
-		// 验证支付信息
+		// Verify payment info
 		if order.Payment.Method != "credit_card" {
 			t.Errorf("Expected Payment.Method 'credit_card', got '%s'", order.Payment.Method)
 		}
@@ -184,7 +184,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected Payment.Status 'completed', got '%s'", order.Payment.Status)
 		}
 
-		// 验证配送信息
+		// Verify shipping info
 		if order.Shipping.Address.City != "San Francisco" {
 			t.Errorf("Expected Shipping.Address.City 'San Francisco', got '%s'", order.Shipping.Address.City)
 		}
@@ -195,7 +195,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected Shipping.TrackingNum '1Z999AA1234567890', got '%s'", order.Shipping.TrackingNum)
 		}
 
-		// 验证订单状态
+		// Verify order status
 		if order.OrderStatus.Status != "shipped" {
 			t.Errorf("Expected OrderStatus.Status 'shipped', got '%s'", order.OrderStatus.Status)
 		}
@@ -203,7 +203,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected OrderStatus.Notes 'Package is on the way', got '%s'", order.OrderStatus.Notes)
 		}
 
-		// 验证订单基本信息
+		// Verify base order fields
 		if order.OrderID != "ORD-2024-001" {
 			t.Errorf("Expected OrderID 'ORD-2024-001', got '%s'", order.OrderID)
 		}
@@ -246,7 +246,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Fatalf("Partial order decoding failed: %v", err)
 		}
 
-		// 验证存在的字段
+		// Verify present fields
 		if order.User.ID != 2002 {
 			t.Errorf("Expected User.ID 2002, got %d", order.User.ID)
 		}
@@ -260,7 +260,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Errorf("Expected item name 'iPhone 15', got '%s'", order.Items[0].Product.Name)
 		}
 
-		// 验证缺失字段的零值
+		// Verify zero values for missing fields
 		if order.User.Phone != "" {
 			t.Errorf("Expected User.Phone empty string, got '%s'", order.User.Phone)
 		}
@@ -275,7 +275,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 	t.Run("Type Conversion in Order", func(t *testing.T) {
 		input := map[string]any{
 			"User": map[string]any{
-				"ID":       "3003", // 字符串转数字
+				"ID":       "3003", // string to number
 				"Username": "bob_wilson",
 				"Email":    "bob@example.com",
 			},
@@ -284,9 +284,9 @@ func TestECommerceOrderDecoding(t *testing.T) {
 					"Product": map[string]any{
 						"ID":    "301",
 						"Name":  "Gaming Laptop",
-						"Price": "1299.99", // 字符串转浮点数
+						"Price": "1299.99", // string to float
 					},
-					"Quantity": "1", // 字符串转整数
+					"Quantity": "1", // string to int
 					"Subtotal": "1299.99",
 				},
 			},
@@ -305,7 +305,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Fatalf("Type conversion order failed: %v", err)
 		}
 
-		// 验证类型转换
+		// Verify type conversion
 		if order.User.ID != 3003 {
 			t.Errorf("Expected User.ID 3003, got %d", order.User.ID)
 		}
@@ -332,7 +332,7 @@ func TestECommerceOrderDecoding(t *testing.T) {
 			t.Fatalf("Empty order decoding failed: %v", err)
 		}
 
-		// 验证所有字段都是零值
+		// Verify all fields keep zero values
 		if order.User.ID != 0 {
 			t.Errorf("Expected User.ID 0, got %d", order.User.ID)
 		}
@@ -351,9 +351,9 @@ func TestECommerceOrderDecoding(t *testing.T) {
 	})
 }
 
-// ===== 简化场景：用户配置文件 =====
+// ===== Simpler scenario: user profile config =====
 
-// 用户偏好设置
+// User preferences
 type UserPreferences struct {
 	Theme         string
 	Language      string
@@ -361,7 +361,7 @@ type UserPreferences struct {
 	Categories    []string
 }
 
-// 用户配置（3层嵌套）
+// User config (3-level nested structure)
 type UserConfig struct {
 	User        UserInfo
 	Preferences UserPreferences
@@ -369,45 +369,45 @@ type UserConfig struct {
 	IsActive    bool
 }
 
-// ===== 匿名成员测试场景 =====
+// ===== Embedded field scenarios =====
 
-// 基础实体（用于内嵌）
+// Base entity for embedding
 type BaseEntity struct {
 	ID        int
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-// 可审计实体（用于内嵌）
+// Auditable entity for embedding
 type Auditable struct {
 	CreatedBy string
 	UpdatedBy string
 }
 
-// 文章（包含匿名成员）
+// Article with embedded fields
 type Article struct {
-	BaseEntity // 匿名内嵌
-	Auditable  // 匿名内嵌
+	BaseEntity // embedded
+	Auditable  // embedded
 	Title      string
 	Content    string
 	Published  bool
 	ViewCount  int
 }
 
-// 多层匿名内嵌
+// Multi-level embedded fields
 type Timestamped struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
 type Identifiable struct {
-	Timestamped // 匿名内嵌 Timestamped
+	Timestamped // embedded Timestamped
 	ID          int
 	UUID        string
 }
 
 type Author struct {
-	Identifiable // 匿名内嵌 Identifiable（包含 Timestamped）
+	Identifiable // embedded Identifiable (contains Timestamped)
 	Name         string
 	Email        string
 }
@@ -439,7 +439,7 @@ func TestUserConfigDecoding(t *testing.T) {
 			t.Fatalf("User config decoding failed: %v", err)
 		}
 
-		// 验证用户信息
+		// Verify user info
 		if config.User.ID != 4001 {
 			t.Errorf("Expected User.ID 4001, got %d", config.User.ID)
 		}
@@ -447,7 +447,7 @@ func TestUserConfigDecoding(t *testing.T) {
 			t.Errorf("Expected User.Username 'alice_johnson', got '%s'", config.User.Username)
 		}
 
-		// 验证偏好设置
+		// Verify preferences
 		if config.Preferences.Theme != "dark" {
 			t.Errorf("Expected Preferences.Theme 'dark', got '%s'", config.Preferences.Theme)
 		}
@@ -464,7 +464,7 @@ func TestUserConfigDecoding(t *testing.T) {
 			t.Errorf("Expected first category 'technology', got '%s'", config.Preferences.Categories[0])
 		}
 
-		// 验证配置状态
+		// Verify config status
 		if !config.IsActive {
 			t.Errorf("Expected IsActive true, got %v", config.IsActive)
 		}
@@ -476,18 +476,18 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 
 	t.Run("Single Anonymous Field", func(t *testing.T) {
 		input := map[string]any{
-			// BaseEntity 字段（匿名内嵌）
+			// BaseEntity fields (embedded)
 			"ID":        1001,
 			"CreatedAt": "2024-01-01 10:00:00Z",
 			"UpdatedAt": "2024-01-02 15:30:00Z",
 
-			// Auditable 字段（匿名内嵌）
+			// Auditable fields (embedded)
 			"CreatedBy": "admin",
 			"UpdatedBy": "editor",
 
-			// Article 自有字段
-			"Title":     "Go语言最佳实践",
-			"Content":   "这是一篇关于Go语言的文章...",
+			// Article-owned fields
+			"Title":     "Go best practices",
+			"Content":   "This is an article about Go...",
 			"Published": true,
 			"ViewCount": 1500,
 		}
@@ -498,7 +498,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Fatalf("Article decoding failed: %v", err)
 		}
 
-		// 验证 BaseEntity 匿名字段
+		// Verify embedded BaseEntity fields
 		if article.ID != 1001 {
 			t.Errorf("Expected ID 1001, got %d", article.ID)
 		}
@@ -506,7 +506,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected BaseEntity.ID 1001, got %d", article.BaseEntity.ID)
 		}
 
-		// 验证时间字段转换是否正确
+		// Verify time field conversion
 		expectedCreatedAt, _ := time.Parse("2006-01-02 15:04:05Z07:00", "2024-01-01 10:00:00Z")
 		if !article.CreatedAt.Equal(expectedCreatedAt) {
 			t.Errorf("Expected CreatedAt %v, got %v", expectedCreatedAt, article.CreatedAt)
@@ -523,7 +523,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected BaseEntity.UpdatedAt %v, got %v", expectedUpdatedAt, article.BaseEntity.UpdatedAt)
 		}
 
-		// 验证 Auditable 匿名字段
+		// Verify embedded Auditable fields
 		if article.CreatedBy != "admin" {
 			t.Errorf("Expected CreatedBy 'admin', got '%s'", article.CreatedBy)
 		}
@@ -531,12 +531,12 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected UpdatedBy 'editor', got '%s'", article.UpdatedBy)
 		}
 
-		// 验证 Article 自有字段
-		if article.Title != "Go语言最佳实践" {
-			t.Errorf("Expected Title 'Go语言最佳实践', got '%s'", article.Title)
+		// Verify article-owned fields
+		if article.Title != "Go best practices" {
+			t.Errorf("Expected Title 'Go best practices', got '%s'", article.Title)
 		}
-		if article.Content != "这是一篇关于Go语言的文章..." {
-			t.Errorf("Expected Content '这是一篇关于Go语言的文章...', got '%s'", article.Content)
+		if article.Content != "This is an article about Go..." {
+			t.Errorf("Expected Content 'This is an article about Go...', got '%s'", article.Content)
 		}
 		if !article.Published {
 			t.Errorf("Expected Published true, got %v", article.Published)
@@ -548,16 +548,16 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 
 	t.Run("Nested Anonymous Fields", func(t *testing.T) {
 		input := map[string]any{
-			// Timestamped 字段（通过 Identifiable 匿名内嵌）
+			// Timestamped fields (via embedded Identifiable)
 			"CreatedAt": "2024-01-01T08:00:00Z",
 			"UpdatedAt": "2024-01-05T12:00:00Z",
 
-			// Identifiable 字段（匿名内嵌）
+			// Identifiable fields (embedded)
 			"ID":   2001,
 			"UUID": "550e8400-e29b-41d4-a716-446655440000",
 
-			// Author 自有字段
-			"Name":  "张三",
+			// Author-owned fields
+			"Name":  "alice",
 			"Email": "zhangsan@example.com",
 		}
 
@@ -567,7 +567,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Fatalf("Author decoding failed: %v", err)
 		}
 
-		// 验证多层匿名内嵌字段
+		// Verify multi-level embedded fields
 		if author.ID != 2001 {
 			t.Errorf("Expected ID 2001, got %d", author.ID)
 		}
@@ -575,7 +575,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected UUID '550e8400-e29b-41d4-a716-446655440000', got '%s'", author.UUID)
 		}
 
-		// 验证最深层的匿名内嵌字段 - 时间转换是否正确
+		// Verify deepest embedded time conversion
 		expectedCreatedAt, _ := time.Parse(time.RFC3339, "2024-01-01T08:00:00Z")
 		if author.Timestamped.CreatedAt.IsZero() {
 			t.Errorf("Expected CreatedAt to be set")
@@ -604,9 +604,9 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected Identifiable.Timestamped.UpdatedAt %v, got %v", expectedUpdatedAt, author.Identifiable.Timestamped.UpdatedAt)
 		}
 
-		// 验证 Author 自有字段
-		if author.Name != "张三" {
-			t.Errorf("Expected Name '张三', got '%s'", author.Name)
+		// Verify author-owned fields
+		if author.Name != "alice" {
+			t.Errorf("Expected Name 'alice', got '%s'", author.Name)
 		}
 		if author.Email != "zhangsan@example.com" {
 			t.Errorf("Expected Email 'zhangsan@example.com', got '%s'", author.Email)
@@ -615,9 +615,9 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 
 	t.Run("Partial Anonymous Fields", func(t *testing.T) {
 		input := map[string]any{
-			// 只提供部分字段
+			// Only provide partial fields
 			"ID":        3001,
-			"Title":     "部分字段测试",
+			"Title":     "partial fields test",
 			"Published": false,
 		}
 
@@ -627,18 +627,18 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Fatalf("Partial article decoding failed: %v", err)
 		}
 
-		// 验证存在的字段
+		// Verify present fields
 		if article.ID != 3001 {
 			t.Errorf("Expected ID 3001, got %d", article.ID)
 		}
-		if article.Title != "部分字段测试" {
-			t.Errorf("Expected Title '部分字段测试', got '%s'", article.Title)
+		if article.Title != "partial fields test" {
+			t.Errorf("Expected Title 'partial fields test', got '%s'", article.Title)
 		}
 		if article.Published != false {
 			t.Errorf("Expected Published false, got %v", article.Published)
 		}
 
-		// 验证缺失字段的零值
+		// Verify zero values for missing fields
 		if article.CreatedBy != "" {
 			t.Errorf("Expected CreatedBy empty string, got '%s'", article.CreatedBy)
 		}
@@ -649,7 +649,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected ViewCount 0, got %d", article.ViewCount)
 		}
 
-		// 验证时间字段为零值
+		// Verify zero value times
 		if !article.CreatedAt.IsZero() {
 			t.Errorf("Expected CreatedAt to be zero, got %v", article.CreatedAt)
 		}
@@ -666,15 +666,15 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 
 	t.Run("Type Conversion with Anonymous Fields", func(t *testing.T) {
 		input := map[string]any{
-			// 使用字符串形式的数字
+			// Use numeric strings
 			"ID":        "4001",
 			"ViewCount": "999",
-			"Title":     "类型转换测试",
+			"Title":     "type conversion test",
 			"Published": "true",
 			"CreatedBy": "system",
-			// 使用不同的时间格式测试
-			"CreatedAt": "2024-03-15",      // 日期格式
-			"UpdatedAt": int64(1710518400), // Unix 时间戳 (2024-03-15 12:00:00 UTC)
+			// Use different time formats
+			"CreatedAt": "2024-03-15",      // date-only format
+			"UpdatedAt": int64(1710518400), // Unix timestamp (2024-03-15 12:00:00 UTC)
 		}
 
 		var article Article
@@ -683,7 +683,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Fatalf("Type conversion with anonymous fields failed: %v", err)
 		}
 
-		// 验证类型转换
+		// Verify type conversion
 		if article.ID != 4001 {
 			t.Errorf("Expected ID 4001, got %d", article.ID)
 		}
@@ -694,7 +694,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 			t.Errorf("Expected Published true, got %v", article.Published)
 		}
 
-		// 验证时间类型转换
+		// Verify time conversion
 		expectedCreatedAt, _ := time.Parse("2006-01-02", "2024-03-15")
 		if !article.CreatedAt.Equal(expectedCreatedAt) {
 			t.Errorf("Expected CreatedAt %v, got %v", expectedCreatedAt, article.CreatedAt)
@@ -707,7 +707,7 @@ func TestAnonymousFieldDecoding(t *testing.T) {
 	})
 }
 
-// ===== 性能测试 =====
+// ===== Benchmarks =====
 
 func BenchmarkOrderDecoding(b *testing.B) {
 	decoder := New()
@@ -746,7 +746,7 @@ func BenchmarkOrderDecoding(b *testing.B) {
 	}
 }
 
-// ===== Duration 解码测试 =====
+// ===== Duration decoding tests =====
 
 type DurationConfig struct {
 	Timeout     time.Duration `yaml:"timeout"`
@@ -783,9 +783,9 @@ func TestDurationDecoding(t *testing.T) {
 
 	t.Run("Int64 as seconds", func(t *testing.T) {
 		input := map[string]any{
-			"timeout":     int64(30),   // 30 秒
-			"interval":    int64(300),  // 300 秒 = 5 分钟
-			"maxWaitTime": int64(3600), // 3600 秒 = 1 小时
+			"timeout":     int64(30),   // 30 seconds
+			"interval":    int64(300),  // 300 seconds = 5 minutes
+			"maxWaitTime": int64(3600), // 3600 seconds = 1 hour
 		}
 
 		var config DurationConfig
@@ -807,8 +807,8 @@ func TestDurationDecoding(t *testing.T) {
 
 	t.Run("Int as seconds", func(t *testing.T) {
 		input := map[string]any{
-			"timeout":  15, // 15 秒
-			"interval": 60, // 60 秒
+			"timeout":  15, // 15 seconds
+			"interval": 60, // 60 seconds
 		}
 
 		var config DurationConfig
@@ -827,9 +827,9 @@ func TestDurationDecoding(t *testing.T) {
 
 	t.Run("Float64 as seconds", func(t *testing.T) {
 		input := map[string]any{
-			"timeout":     30.5, // 30.5 秒
-			"interval":    1.5,  // 1.5 秒
-			"maxWaitTime": 0.5,  // 0.5 秒
+			"timeout":     30.5, // 30.5 seconds
+			"interval":    1.5,  // 1.5 seconds
+			"maxWaitTime": 0.5,  // 0.5 seconds
 		}
 
 		var config DurationConfig
@@ -855,7 +855,7 @@ func TestDurationDecoding(t *testing.T) {
 	})
 
 	t.Run("Consistent behavior: int64 and float64 both as seconds", func(t *testing.T) {
-		// 验证 int64 和 float64 都按秒处理，行为一致
+		// Verify int64 and float64 are both interpreted as seconds
 		input1 := map[string]any{
 			"timeout": int64(30),
 		}
@@ -870,7 +870,7 @@ func TestDurationDecoding(t *testing.T) {
 			t.Fatalf("Duration decoding failed: err1=%v, err2=%v", err1, err2)
 		}
 
-		// 两者应该得到相同的结果（允许微小的浮点误差）
+		// Both should produce the same result within minor float error
 		diff := config1.Timeout - config2.Timeout
 		if diff < 0 {
 			diff = -diff

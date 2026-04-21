@@ -17,9 +17,13 @@ import (
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
-	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/bootstrap"
-	"github.com/HorseArcher567/octopus/pkg/app"
+	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/order"
+	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/product"
+	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/shared"
+	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/user"
+	"github.com/HorseArcher567/octopus/pkg/assemble"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/rpc"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -39,16 +43,18 @@ func TestServerE2E(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	a, err := app.FromConfig(cfg)
+	a, err := assemble.New(
+		cfg,
+		assemble.With(
+			shared.AssembleHello,
+			user.Assemble,
+			order.Assemble,
+			product.Assemble,
+		),
+	)
 	if err != nil {
 		t.Fatalf("build app: %v", err)
 	}
-	a.Use(
-		bootstrap.NewInfraModule(),
-		bootstrap.NewServiceModule(),
-		bootstrap.NewRPCModule(),
-		bootstrap.NewAPIModule(),
-	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -62,7 +68,7 @@ func TestServerE2E(t *testing.T) {
 		t.Fatalf("api not ready: %v", err)
 	}
 
-	conn, err := a.NewRPCClient(fmt.Sprintf("127.0.0.1:%d", rpcPort))
+	conn, err := rpc.NewClient(fmt.Sprintf("127.0.0.1:%d", rpcPort))
 	if err != nil {
 		t.Fatalf("new rpc client: %v", err)
 	}
@@ -172,9 +178,13 @@ func writeConfig(t *testing.T, dsn string, rpcPort, apiPort int) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	content := fmt.Sprintf(`logger:
-  level: info
-  format: text
-  output: stdout
+  - name: default
+    level: info
+    format: text
+    output: stdout
+
+app:
+  logger: default
 
 rpcServer:
   name: multi-service-e2e
@@ -189,11 +199,10 @@ apiServer:
   port: %d
   mode: release
 
-resources:
-  mysql:
-    primary:
-      dsn: %q
-      driverName: mysql
+mysql:
+  - name: primary
+    dsn: %q
+    driverName: mysql
 `, rpcPort, apiPort, dsn)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)

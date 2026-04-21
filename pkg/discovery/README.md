@@ -1,31 +1,54 @@
 # pkg/discovery
 
-`pkg/discovery` defines the service discovery abstraction used by Octopus.
+`pkg/discovery` provides the unified gRPC discovery model used by Octopus.
 
 Core abstractions:
 
 - `Instance`
 - `Registrar`
 - `Resolver`
-- `Provider`
+- `Discovery`
+
+Built-in implementations:
+
+- `EtcdRegistrar`
+- `EtcdResolver`
+- `EtcdDiscovery`
+- `DirectResolver`
 
 Responsibilities:
 
-- service registration
-- service deregistration
-- service resolution
-- service watch/refresh integration
-- optional gRPC resolver builder exposure for client-side discovery
+- service registration for gRPC servers
+- gRPC target resolution for clients
+- support for `etcd:///service-name`
+- support for `direct:///host1:port1,host2:port2`
 
-This package exists so RPC runtime code can depend on discovery capabilities instead of directly depending on etcd-specific registration and resolution details.
+Usage:
 
-Current status:
+### Direct target dialing
 
-- discovery abstraction is in place
-- etcd provider exists under `pkg/discovery/etcd`
-- RPC server registration already uses discovery registrar
-- RPC client discovery prefers provider-backed gRPC resolver builder when available
+```go
+resolver := discovery.NewDirectResolver(log)
+conn, err := rpc.NewClient(
+    "direct:///127.0.0.1:9001,127.0.0.1:9002",
+    grpc.WithResolvers(resolver.Builder()),
+)
+if err != nil {
+    return err
+}
+defer conn.Close()
+```
 
-For new code, prefer this package and `pkg/discovery/etcd` rather than legacy compatibility paths.
+### Etcd-based discovery
 
-Some legacy etcd-related code still remains under `pkg/rpc/registry` and `pkg/rpc/resolver` as transitional compatibility paths.
+```go
+resolver := discovery.NewEtcdResolver(log, etcdClient)
+conn, err := rpc.NewClient(
+    "etcd:///user-service",
+    grpc.WithResolvers(resolver.Builder()),
+)
+if err != nil {
+    return err
+}
+defer conn.Close()
+```

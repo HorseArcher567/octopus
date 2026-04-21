@@ -263,6 +263,10 @@ func (k *ServerKeepalive) BuildServerOptions() []grpc.ServerOption {
 
 // ServerConfig is the configuration for the RPC server.
 type ServerConfig struct {
+	// Logger is the name of the logger to use for the RPC server.
+	// If empty, the app logger will be used.
+	Logger string `yaml:"logger" json:"logger" toml:"logger"`
+
 	// Name is the service name used when registering to the service registry.
 	Name string `yaml:"name" json:"name" toml:"name"`
 

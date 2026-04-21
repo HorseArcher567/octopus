@@ -9,7 +9,7 @@ import (
 func TestConfig_Basic(t *testing.T) {
 	cfg := New()
 
-	// 测试 Set 和 Get
+	// Test Set and Get
 	cfg.Set("name", "test")
 	cfg.Set("port", 8080)
 	cfg.Set("enabled", true)
@@ -30,7 +30,7 @@ func TestConfig_Basic(t *testing.T) {
 func TestConfig_NestedAccess(t *testing.T) {
 	cfg := New()
 
-	// 测试嵌套路径
+	// Test nested paths
 	cfg.Set("database.host", "localhost")
 	cfg.Set("database.port", 3306)
 	cfg.Set("database.credentials.username", "admin")
@@ -265,17 +265,17 @@ enabled = true
 }
 
 func TestLoad(t *testing.T) {
-	// 创建临时目录
+	// Create a temporary directory
 	tempDir := t.TempDir()
 
-	// 创建测试配置文件
+	// Create a test config file
 	jsonFile := filepath.Join(tempDir, "config.json")
 	jsonData := `{"name": "test", "port": 8080}`
 	if err := os.WriteFile(jsonFile, []byte(jsonData), 0644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	// 加载配置
+	// Load config
 	cfg, err := Load(jsonFile)
 	if err != nil {
 		t.Fatalf("failed to load file: %v", err)
@@ -287,7 +287,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestLoad_EnvVars(t *testing.T) {
-	// 设置测试环境变量
+	// Set test environment variables
 	os.Setenv("TEST_HOST", "localhost")
 	os.Setenv("TEST_PORT", "3306")
 	defer os.Unsetenv("TEST_HOST")
@@ -327,12 +327,12 @@ func TestConfig_GetWithDefault(t *testing.T) {
 	cfg := New()
 	cfg.Set("existing", "value")
 
-	// 测试存在的key
+	// Test an existing key
 	if val := cfg.GetWithDefault("existing", "default").(string); val != "value" {
 		t.Errorf("expected 'value', got '%s'", val)
 	}
 
-	// 测试不存在的key
+	// Test a missing key
 	if val := cfg.GetWithDefault("nonexistent", "default").(string); val != "default" {
 		t.Errorf("expected 'default', got '%s'", val)
 	}
@@ -364,7 +364,7 @@ func TestLoadFromBytes(t *testing.T) {
 	}
 }
 
-// 测试类型安全的默认值方法
+// Test typed default-value helpers
 func TestGetWithDefaultTyped(t *testing.T) {
 	cfg := New()
 	cfg.Set("name", "test")
@@ -372,7 +372,7 @@ func TestGetWithDefaultTyped(t *testing.T) {
 	cfg.Set("enabled", true)
 	cfg.Set("ratio", 3.14)
 
-	// 测试存在的值
+	// Test existing values
 	if val := cfg.GetStringWithDefault("name", "default"); val != "test" {
 		t.Errorf("expected 'test', got '%s'", val)
 	}
@@ -389,7 +389,7 @@ func TestGetWithDefaultTyped(t *testing.T) {
 		t.Errorf("expected 3.14, got %f", val)
 	}
 
-	// 测试不存在的值（返回默认值）
+	// Test missing values (should return defaults)
 	if val := cfg.GetStringWithDefault("missing", "default"); val != "default" {
 		t.Errorf("expected 'default', got '%s'", val)
 	}
@@ -407,14 +407,14 @@ func TestGetWithDefaultTyped(t *testing.T) {
 	}
 }
 
-// 测试切片支持
+// Test slice helpers
 func TestGetSlice(t *testing.T) {
 	cfg := New()
 	cfg.Set("hosts", []any{"host1", "host2", "host3"})
 	cfg.Set("ports", []any{8080, 8081, 8082})
 	cfg.Set("mixed", []any{"string", 123, true})
 
-	// 测试字符串切片
+	// Test string slices
 	hosts := cfg.GetStringSlice("hosts")
 	if len(hosts) != 3 {
 		t.Errorf("expected 3 hosts, got %d", len(hosts))
@@ -423,7 +423,7 @@ func TestGetSlice(t *testing.T) {
 		t.Errorf("unexpected hosts: %v", hosts)
 	}
 
-	// 测试整数切片
+	// Test int slices
 	ports := cfg.GetIntSlice("ports")
 	if len(ports) != 3 {
 		t.Errorf("expected 3 ports, got %d", len(ports))
@@ -432,22 +432,22 @@ func TestGetSlice(t *testing.T) {
 		t.Errorf("unexpected ports: %v", ports)
 	}
 
-	// 测试任意类型切片
+	// Test generic slices
 	mixed := cfg.GetSlice("mixed")
 	if len(mixed) != 3 {
 		t.Errorf("expected 3 items, got %d", len(mixed))
 	}
 
-	// 测试不存在的切片
+	// Test missing slices
 	empty := cfg.GetStringSlice("nonexistent")
 	if len(empty) != 0 {
 		t.Errorf("expected empty slice, got %v", empty)
 	}
 }
 
-// 测试 Load 方法的替换行为
+// Test Load replacement behavior
 func TestConfigLoadReplace(t *testing.T) {
-	// 创建临时配置文件
+	// Create a temporary config file
 	tmpDir := t.TempDir()
 
 	file1 := filepath.Join(tmpDir, "config1.json")
@@ -464,12 +464,12 @@ func TestConfigLoadReplace(t *testing.T) {
 
 	cfg := New()
 
-	// 加载第一个文件
+	// Load the first file
 	if err := cfg.Load(file1); err != nil {
 		t.Fatal(err)
 	}
 
-	// 验证第一个文件的内容
+	// Verify the first file contents
 	if val := cfg.GetString("app.name"); val != "test" {
 		t.Errorf("expected 'test', got '%s'", val)
 	}
@@ -480,12 +480,12 @@ func TestConfigLoadReplace(t *testing.T) {
 		t.Errorf("expected 8080, got %d", val)
 	}
 
-	// 加载第二个文件（应该完全替换）
+	// Load the second file (should fully replace)
 	if err := cfg.Load(file2); err != nil {
 		t.Fatal(err)
 	}
 
-	// 验证替换结果：第一个文件的配置应该被完全替换
+	// Verify replacement: data from the first file should be gone
 	if cfg.Has("app.name") {
 		t.Error("app.name should not exist after replacement")
 	}
@@ -503,7 +503,7 @@ func TestConfigLoadReplace(t *testing.T) {
 	}
 }
 
-// 测试 Load 方法在空 Config 时的行为（直接加载）
+// Test Load behavior on an empty Config
 func TestConfigLoadOnEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -521,12 +521,12 @@ func TestConfigLoadOnEmpty(t *testing.T) {
 
 	cfg := New()
 
-	// 加载第一个文件（空 Config，应该直接加载）
+	// Load the first file into an empty Config
 	if err := cfg.Load(file1); err != nil {
 		t.Fatal(err)
 	}
 
-	// 验证加载结果
+	// Verify loaded results
 	if val := cfg.GetString("app"); val != "test1" {
 		t.Errorf("expected 'test1', got '%s'", val)
 	}
@@ -534,26 +534,26 @@ func TestConfigLoadOnEmpty(t *testing.T) {
 		t.Errorf("expected 8080, got %d", val)
 	}
 
-	// Load 本身就是完全替换，但这里先 Clear 再 Load 来演示替换行为
+	// Load already replaces data, but this uses Clear first to make the behavior explicit
 	cfg.Clear()
 	if err := cfg.Load(file2); err != nil {
 		t.Fatal(err)
 	}
 
-	// 验证替换结果
+	// Verify replacement results
 	if val := cfg.GetString("app"); val != "test2" {
 		t.Errorf("expected 'test2', got '%s'", val)
 	}
 	if val := cfg.GetInt("timeout"); val != 30 {
 		t.Errorf("expected 30, got %d", val)
 	}
-	// port 应该不存在了
+	// port should no longer exist
 	if cfg.Has("port") {
 		t.Error("port should not exist after Clear and Load")
 	}
 }
 
-// 测试包级函数返回独立实例
+// Test that package-level helpers return independent instances
 func TestLoadIndependentInstances(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -569,7 +569,7 @@ func TestLoadIndependentInstances(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 加载两个配置
+	// Load two configs
 	cfg1, err := Load(file1)
 	if err != nil {
 		t.Fatal(err)
@@ -580,12 +580,12 @@ func TestLoadIndependentInstances(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 验证它们是不同的实例
+	// Verify they are distinct instances
 	if cfg1 == cfg2 {
 		t.Error("Load should return different Config instances")
 	}
 
-	// 验证各自的值
+	// Verify their individual values
 	if val := cfg1.GetString("name"); val != "config1" {
 		t.Errorf("cfg1 expected 'config1', got '%s'", val)
 	}
@@ -595,11 +595,11 @@ func TestLoadIndependentInstances(t *testing.T) {
 	}
 }
 
-// 测试 MustLoad 方法
+// Test MustLoad
 func TestMustLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 测试成功的情况
+	// Test the success case
 	file := filepath.Join(tmpDir, "config.json")
 	data := []byte(`{"name": "test", "port": 8080}`)
 	if err := os.WriteFile(file, data, 0644); err != nil {
@@ -612,12 +612,12 @@ func TestMustLoad(t *testing.T) {
 	}
 }
 
-// 测试 MustUnmarshal 方法
+// Test MustUnmarshal
 func TestMustUnmarshal(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	file := filepath.Join(tmpDir, "config.json")
-	// JSON 键名需要与结构体字段名匹配（大小写一致）
+	// JSON keys must match struct field names exactly, including case
 	data := []byte(`{"Name": "test-app", "Port": 8080, "Enabled": true}`)
 	if err := os.WriteFile(file, data, 0644); err != nil {
 		t.Fatal(err)
@@ -643,18 +643,18 @@ func TestMustUnmarshal(t *testing.T) {
 	}
 }
 
-// 测试 MustUnmarshal 方法（支持环境变量）
+// Test MustUnmarshal with environment variable expansion
 func TestMustUnmarshal_EnvVars(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 设置环境变量
+	// Set environment variables
 	os.Setenv("TEST_APP_NAME", "my-app")
 	os.Setenv("TEST_PORT", "9090")
 	defer os.Unsetenv("TEST_APP_NAME")
 	defer os.Unsetenv("TEST_PORT")
 
 	file := filepath.Join(tmpDir, "config.json")
-	// JSON 键名需要与结构体字段名匹配（大小写一致）
+	// JSON keys must match struct field names exactly, including case
 	data := []byte(`{
 		"Name": "${TEST_APP_NAME}",
 		"Port": "${TEST_PORT}"
@@ -679,24 +679,24 @@ func TestMustUnmarshal_EnvVars(t *testing.T) {
 	}
 }
 
-// 测试 WriteToFile 方法
+// Test WriteToFile
 func TestWriteToFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 创建配置
+	// Create config data
 	cfg := New()
 	cfg.Set("app.name", "TestApp")
 	cfg.Set("app.port", 8080)
 	cfg.Set("database.host", "localhost")
 	cfg.Set("database.port", 3306)
 
-	// 测试导出为 JSON
+	// Test writing JSON
 	jsonFile := filepath.Join(tmpDir, "output.json")
 	if err := cfg.WriteToFile(jsonFile); err != nil {
 		t.Fatalf("failed to write JSON: %v", err)
 	}
 
-	// 验证 JSON 文件内容
+	// Verify JSON file contents
 	loadedJSON, err := Load(jsonFile)
 	if err != nil {
 		t.Fatalf("failed to load JSON: %v", err)
@@ -705,13 +705,13 @@ func TestWriteToFile(t *testing.T) {
 		t.Error("JSON content mismatch")
 	}
 
-	// 测试导出为 YAML
+	// Test writing YAML
 	yamlFile := filepath.Join(tmpDir, "output.yaml")
 	if err := cfg.WriteToFile(yamlFile); err != nil {
 		t.Fatalf("failed to write YAML: %v", err)
 	}
 
-	// 验证 YAML 文件内容
+	// Verify YAML file contents
 	loadedYAML, err := Load(yamlFile)
 	if err != nil {
 		t.Fatalf("failed to load YAML: %v", err)
@@ -720,13 +720,13 @@ func TestWriteToFile(t *testing.T) {
 		t.Error("YAML content mismatch")
 	}
 
-	// 测试导出为 TOML
+	// Test writing TOML
 	tomlFile := filepath.Join(tmpDir, "output.toml")
 	if err := cfg.WriteToFile(tomlFile); err != nil {
 		t.Fatalf("failed to write TOML: %v", err)
 	}
 
-	// 验证 TOML 文件内容
+	// Verify TOML file contents
 	loadedTOML, err := Load(tomlFile)
 	if err != nil {
 		t.Fatalf("failed to load TOML: %v", err)
@@ -736,11 +736,11 @@ func TestWriteToFile(t *testing.T) {
 	}
 }
 
-// 测试 WriteToFile 的实际使用场景
+// Test a practical WriteToFile workflow
 func TestWriteToFile_UseCases(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 场景1: 配置替换后导出检查
+	// Scenario 1: export after replacement
 	base := filepath.Join(tmpDir, "base.json")
 	os.WriteFile(base, []byte(`{"name": "app", "port": 8080}`), 0644)
 
@@ -750,7 +750,7 @@ func TestWriteToFile_UseCases(t *testing.T) {
 	cfg := New()
 	cfg.Load(base)
 
-	// 验证第一个文件的内容
+	// Verify the first file contents
 	if cfg.GetString("name") != "app" {
 		t.Error("name should be 'app'")
 	}
@@ -758,7 +758,7 @@ func TestWriteToFile_UseCases(t *testing.T) {
 		t.Error("port should be 8080")
 	}
 
-	// 加载第二个文件（应该完全替换）
+	// Load the second file (should fully replace)
 	cfg.Load(prod)
 
 	exported := filepath.Join(tmpDir, "exported.json")
@@ -766,7 +766,7 @@ func TestWriteToFile_UseCases(t *testing.T) {
 		t.Fatalf("failed to write exported config: %v", err)
 	}
 
-	// 验证替换结果
+	// Verify replacement results
 	result, _ := Load(exported)
 	if result.Has("name") {
 		t.Error("name should not exist after replacement")
@@ -778,7 +778,7 @@ func TestWriteToFile_UseCases(t *testing.T) {
 		t.Error("env should be 'production'")
 	}
 
-	// 场景2: 动态修改后保存
+	// Scenario 2: save after dynamic updates
 	cfg.Set("debug", true)
 	cfg.Set("new_field", "added")
 
@@ -787,7 +787,7 @@ func TestWriteToFile_UseCases(t *testing.T) {
 		t.Fatalf("failed to write updated config: %v", err)
 	}
 
-	// 验证修改是否保存
+	// Verify changes were saved
 	result2, _ := Load(updated)
 	if !result2.GetBool("debug") {
 		t.Error("debug should be true")

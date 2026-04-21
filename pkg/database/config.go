@@ -7,6 +7,9 @@ import (
 
 // Config is the configuration for database connection.
 type Config struct {
+	// Name is the logical instance name used when publishing the DB into the shared store.
+	Name string `yaml:"name" json:"name" toml:"name"`
+
 	// DSN is the data source name (e.g., "user:pass@tcp(localhost:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local").
 	DSN string `yaml:"dsn" json:"dsn" toml:"dsn"`
 
@@ -27,6 +30,9 @@ type Config struct {
 	// ConnMaxIdleTime is the maximum amount of time a connection may be idle (default: 0, unlimited).
 	// Unit: seconds
 	ConnMaxIdleTime int `yaml:"connMaxIdleTime" json:"connMaxIdleTime" toml:"connMaxIdleTime"`
+
+	// PingTimeout is the startup ping timeout.
+	PingTimeout time.Duration `yaml:"pingTimeout" json:"pingTimeout" toml:"pingTimeout"`
 }
 
 // Validate validates the configuration.
@@ -49,6 +55,10 @@ func (c *Config) Validate() error {
 
 	if c.ConnMaxIdleTime < 0 {
 		return errors.New("database: ConnMaxIdleTime cannot be negative")
+	}
+
+	if c.PingTimeout < 0 {
+		return errors.New("database: PingTimeout cannot be negative")
 	}
 
 	return nil

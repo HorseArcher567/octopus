@@ -9,51 +9,50 @@ import (
 	"time"
 )
 
-// 自定义错误类型
+// Error values returned by the decoder.
 var (
 	ErrArrayLengthMismatch = errors.New("array length mismatch")
 )
 
-// Decoder 提供 map[string]any 到 struct 的解码功能
+// Decoder maps map[string]any values into Go structs.
 type Decoder struct {
-	// TagName 指定用于字段映射的标签名
-	// 默认为空字符串（使用字段名作为key）
-	// 可选值: "mapstruct", "json", 或其他自定义标签名, 默认使用 "yaml" 标签
+	// TagName controls which struct tag is used for field lookup.
+	// New() currently defaults to the "yaml" tag.
 	TagName string
-	// StrictMode 严格模式，如果字段类型不匹配则返回错误
+	// StrictMode returns field conversion errors instead of skipping them.
 	StrictMode bool
-	// TimeLayout 时间解析格式，默认为 RFC3339
+	// TimeLayout controls string-to-time parsing. The default is RFC3339.
 	TimeLayout string
 }
 
-// New 创建一个新的解码器
+// New creates a decoder.
 func New() *Decoder {
 	return &Decoder{
-		TagName:    "yaml", // 默认使用字段名作为key
+		TagName:    "yaml",
 		StrictMode: false,
 		TimeLayout: time.RFC3339,
 	}
 }
 
-// WithTagName 设置标签名
+// WithTagName sets the struct tag name used during field lookup.
 func (d *Decoder) WithTagName(tagName string) *Decoder {
 	d.TagName = tagName
 	return d
 }
 
-// WithStrictMode 设置严格模式
+// WithStrictMode enables or disables strict decoding.
 func (d *Decoder) WithStrictMode(strict bool) *Decoder {
 	d.StrictMode = strict
 	return d
 }
 
-// WithTimeLayout 设置时间格式
+// WithTimeLayout sets the layout used for parsing time strings.
 func (d *Decoder) WithTimeLayout(layout string) *Decoder {
 	d.TimeLayout = layout
 	return d
 }
 
-// Decode 将 map[string]any 解码为指定的结构体
+// Decode decodes input into target.
 func (d *Decoder) Decode(input map[string]any, target interface{}) error {
 	targetValue := reflect.ValueOf(target)
 	if targetValue.Kind() != reflect.Ptr {
@@ -85,18 +84,18 @@ func (d *Decoder) resolveToStructValue(v reflect.Value) reflect.Value {
 	return v
 }
 
-// decodeStruct 解码结构体
+// decodeStruct decodes a struct value.
 func (d *Decoder) decodeStruct(input map[string]any, targetValue reflect.Value, targetType reflect.Type) error {
 	for i := 0; i < targetType.NumField(); i++ {
 		field := targetType.Field(i)
 		fieldValue := targetValue.Field(i)
 
-		// 跳过不可设置的字段
+		// Skip fields that cannot be set.
 		if !fieldValue.CanSet() {
 			continue
 		}
 
-		// 根据字段类型选择解码方法
+		// Choose the decoding path based on field shape.
 		var err error
 		if field.Anonymous {
 			err = d.decodeEmbeddedField(input, fieldValue, field)
@@ -112,7 +111,7 @@ func (d *Decoder) decodeStruct(input map[string]any, targetValue reflect.Value, 
 	return nil
 }
 
-// decodeEmbeddedField 解码内嵌字段
+// decodeEmbeddedField decodes an embedded field.
 func (d *Decoder) decodeEmbeddedField(input map[string]any, fieldValue reflect.Value, field reflect.StructField) error {
 	if err := d.decodeStruct(input, fieldValue, field.Type); err != nil {
 		return d.handleDecodeError(err, field.Name)
@@ -120,21 +119,21 @@ func (d *Decoder) decodeEmbeddedField(input map[string]any, fieldValue reflect.V
 	return nil
 }
 
-// decodeNormalField 解码普通字段
+// decodeNormalField decodes a non-embedded field.
 func (d *Decoder) decodeNormalField(input map[string]any, fieldValue reflect.Value, field reflect.StructField) error {
-	// 获取字段的映射名称
+	// Resolve the source field name.
 	fieldName := d.getFieldName(field)
 	if fieldName == "" {
 		return nil
 	}
 
-	// 从输入中获取值
+	// Read the input value.
 	inputValue, exists := input[fieldName]
 	if !exists {
 		return nil
 	}
 
-	// 解码字段值
+	// Decode the field value.
 	if err := d.decodeField(inputValue, fieldValue); err != nil {
 		return d.handleDecodeError(err, fieldName)
 	}
@@ -142,36 +141,36 @@ func (d *Decoder) decodeNormalField(input map[string]any, fieldValue reflect.Val
 	return nil
 }
 
-// handleDecodeError 处理解码错误，根据错误类型和模式决定是否返回错误
+// handleDecodeError decides whether a field error should be returned.
 func (d *Decoder) handleDecodeError(err error, fieldName string) error {
-	// 数组长度不匹配始终返回错误
+	// Array length mismatches are always returned.
 	if errors.Is(err, ErrArrayLengthMismatch) {
 		return fmt.Errorf("failed to decode field %s: %w", fieldName, err)
 	}
 
-	// 严格模式下返回所有错误
+	// In strict mode, return all field errors.
 	if d.StrictMode {
 		return fmt.Errorf("failed to decode field %s: %w", fieldName, err)
 	}
 
-	// 非严格模式下忽略错误
+	// In non-strict mode, ignore field errors.
 	return nil
 }
 
-// getFieldName 获取字段的映射名称
+// getFieldName resolves the source name for a struct field.
 func (d *Decoder) getFieldName(field reflect.StructField) string {
-	// 如果没有指定TagName，直接使用字段名
+	// Without a tag name, fall back to the struct field name.
 	if d.TagName == "" {
 		return field.Name
 	}
 
-	// 尝试获取标签
+	// Read the configured struct tag.
 	tag := field.Tag.Get(d.TagName)
 	if tag == "" {
 		return field.Name
 	}
 
-	// 标签值为 "-" 表示忽略该字段
+	// A tag value of "-" means the field is ignored.
 	if tag == "-" {
 		return ""
 	}
@@ -179,60 +178,60 @@ func (d *Decoder) getFieldName(field reflect.StructField) string {
 	return tag
 }
 
-// decodeField 解码单个字段
+// decodeField decodes a single field value.
 func (d *Decoder) decodeField(inputValue any, targetValue reflect.Value) error {
 	targetType := targetValue.Type()
 
-	// 如果输入值为 nil，跳过
+	// Ignore nil input values.
 	if inputValue == nil {
 		return nil
 	}
 
-	// 如果类型完全匹配，直接赋值
+	// Fast path for exact type matches.
 	if reflect.TypeOf(inputValue) == targetType {
 		targetValue.Set(reflect.ValueOf(inputValue))
 		return nil
 	}
 
-	// 处理指针类型
+	// Handle pointer targets.
 	if targetType.Kind() == reflect.Ptr {
 		return d.decodeToPointer(inputValue, targetValue, targetType)
 	}
 
-	// 处理切片类型
+	// Handle slice targets.
 	if targetType.Kind() == reflect.Slice {
 		return d.decodeToSlice(inputValue, targetValue, targetType)
 	}
 
-	// 处理数组类型
+	// Handle array targets.
 	if targetType.Kind() == reflect.Array {
 		return d.decodeToArray(inputValue, targetValue, targetType)
 	}
 
-	// 处理 map 类型
+	// Handle map targets.
 	if targetType.Kind() == reflect.Map {
 		return d.decodeToMap(inputValue, targetValue, targetType)
 	}
 
-	// 处理结构体类型
+	// Handle struct targets.
 	if targetType.Kind() == reflect.Struct {
-		// 特殊处理 time.Time
+		// Special-case time.Time.
 		if targetType.String() == "time.Time" {
 			return d.decodeToTime(inputValue, targetValue)
 		}
 		return d.decodeToStruct(inputValue, targetValue, targetType)
 	}
 
-	// 特殊处理 time.Duration（实际上是 int64 类型）
+	// Special-case time.Duration.
 	if targetType.String() == "time.Duration" {
 		return d.decodeToDuration(inputValue, targetValue)
 	}
 
-	// 处理基本类型
+	// Handle basic scalar types.
 	return d.decodeBasicType(inputValue, targetValue, targetType)
 }
 
-// decodeToPointer 解码到指针类型
+// decodeToPointer decodes into a pointer target.
 func (d *Decoder) decodeToPointer(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	elemType := targetType.Elem()
 	elemValue := reflect.New(elemType).Elem()
@@ -245,7 +244,7 @@ func (d *Decoder) decodeToPointer(inputValue any, targetValue reflect.Value, tar
 	return nil
 }
 
-// decodeToSlice 解码到切片类型
+// decodeToSlice decodes into a slice target.
 func (d *Decoder) decodeToSlice(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	inputSlice, ok := d.toSlice(inputValue)
 	if !ok {
@@ -267,7 +266,7 @@ func (d *Decoder) decodeToSlice(inputValue any, targetValue reflect.Value, targe
 	return nil
 }
 
-// decodeToArray 解码到数组类型
+// decodeToArray decodes into an array target.
 func (d *Decoder) decodeToArray(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	inputSlice, ok := d.toSlice(inputValue)
 	if !ok {
@@ -291,7 +290,7 @@ func (d *Decoder) decodeToArray(inputValue any, targetValue reflect.Value, targe
 	return nil
 }
 
-// decodeToMap 解码到 map 类型（当前仅支持 string key）。
+// decodeToMap decodes into a map target. Only string keys are supported.
 func (d *Decoder) decodeToMap(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	inputMap, ok := d.toMap(inputValue)
 	if !ok {
@@ -318,7 +317,7 @@ func (d *Decoder) decodeToMap(inputValue any, targetValue reflect.Value, targetT
 	return nil
 }
 
-// decodeToStruct 解码到结构体类型
+// decodeToStruct decodes into a struct target.
 func (d *Decoder) decodeToStruct(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	inputMap, ok := inputValue.(map[string]any)
 	if !ok {
@@ -328,14 +327,14 @@ func (d *Decoder) decodeToStruct(inputValue any, targetValue reflect.Value, targ
 	return d.decodeStruct(inputMap, targetValue, targetType)
 }
 
-// decodeToTime 解码到 time.Time 类型
+// decodeToTime decodes into time.Time.
 func (d *Decoder) decodeToTime(inputValue any, targetValue reflect.Value) error {
 	var t time.Time
 	var err error
 
 	switch v := inputValue.(type) {
 	case string:
-		// 尝试多种时间格式
+		// Try a small set of supported time layouts.
 		formats := []string{
 			time.RFC3339,
 			time.RFC3339Nano,
@@ -365,7 +364,7 @@ func (d *Decoder) decodeToTime(inputValue any, targetValue reflect.Value) error 
 		return nil
 
 	case float64:
-		// Unix timestamp (可能包含小数秒)
+		// Unix timestamp, optionally with fractional seconds.
 		sec := int64(v)
 		nsec := int64((v - float64(sec)) * 1e9)
 		t = time.Unix(sec, nsec)
@@ -377,14 +376,14 @@ func (d *Decoder) decodeToTime(inputValue any, targetValue reflect.Value) error 
 	}
 }
 
-// decodeToDuration 解码到 time.Duration 类型
+// decodeToDuration decodes into time.Duration.
 func (d *Decoder) decodeToDuration(inputValue any, targetValue reflect.Value) error {
 	var duration time.Duration
 	var err error
 
 	switch v := inputValue.(type) {
 	case string:
-		// 使用 time.ParseDuration 解析持续时间字符串（如 "10s", "5m", "1h"）
+		// Parse duration strings such as "10s", "5m", or "1h".
 		duration, err = time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("cannot parse duration string %q: %w", v, err)
@@ -397,25 +396,22 @@ func (d *Decoder) decodeToDuration(inputValue any, targetValue reflect.Value) er
 		return nil
 
 	case int64:
-		// 秒数（转换为纳秒）
-		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
-		// 如果需要传递纳秒值，请使用 time.Duration 类型或字符串格式（如 "10s"）
+		// Numeric values are interpreted as seconds for config-friendly behavior.
+		// Use a time.Duration value or a string such as "10s" for finer control.
 		duration = time.Duration(v * int64(time.Second))
 		targetValue.SetInt(int64(duration))
 		return nil
 
 	case int:
-		// 秒数（转换为纳秒）
-		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
-		// 如果需要传递纳秒值，请使用 time.Duration 类型或字符串格式（如 "10s"）
+		// Numeric values are interpreted as seconds for config-friendly behavior.
+		// Use a time.Duration value or a string such as "10s" for finer control.
 		duration = time.Duration(v * int(time.Second))
 		targetValue.SetInt(int64(duration))
 		return nil
 
 	case float64:
-		// 秒数（转换为纳秒）
-		// 注意：为了与配置文件使用习惯一致，数字类型统一按秒处理
-		// 支持小数秒，例如 1.5 表示 1.5 秒
+		// Numeric values are interpreted as seconds for config-friendly behavior.
+		// Fractional seconds are supported, for example 1.5 means 1.5 seconds.
 		duration = time.Duration(v * float64(time.Second))
 		targetValue.SetInt(int64(duration))
 		return nil
@@ -425,7 +421,7 @@ func (d *Decoder) decodeToDuration(inputValue any, targetValue reflect.Value) er
 	}
 }
 
-// decodeBasicType 解码基本类型
+// decodeBasicType decodes basic scalar types.
 func (d *Decoder) decodeBasicType(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	switch targetType.Kind() {
 	case reflect.String:
@@ -443,7 +439,7 @@ func (d *Decoder) decodeBasicType(inputValue any, targetValue reflect.Value, tar
 	}
 }
 
-// decodeToString 解码为字符串
+// decodeToString decodes into a string.
 func (d *Decoder) decodeToString(inputValue any, targetValue reflect.Value) error {
 	switch v := inputValue.(type) {
 	case string:
@@ -456,7 +452,7 @@ func (d *Decoder) decodeToString(inputValue any, targetValue reflect.Value) erro
 	return nil
 }
 
-// decodeToInt 解码为整数
+// decodeToInt decodes into a signed integer.
 func (d *Decoder) decodeToInt(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	var intValue int64
 
@@ -501,7 +497,7 @@ func (d *Decoder) decodeToInt(inputValue any, targetValue reflect.Value, targetT
 		return fmt.Errorf("cannot decode %T to int", inputValue)
 	}
 
-	// 检查范围
+	// Check numeric bounds.
 	switch targetType.Kind() {
 	case reflect.Int8:
 		if intValue < -128 || intValue > 127 {
@@ -521,7 +517,7 @@ func (d *Decoder) decodeToInt(inputValue any, targetValue reflect.Value, targetT
 	return nil
 }
 
-// decodeToUint 解码为无符号整数
+// decodeToUint decodes into an unsigned integer.
 func (d *Decoder) decodeToUint(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	var uintValue uint64
 
@@ -587,7 +583,7 @@ func (d *Decoder) decodeToUint(inputValue any, targetValue reflect.Value, target
 		return fmt.Errorf("cannot decode %T to uint", inputValue)
 	}
 
-	// 检查范围
+	// Check numeric bounds.
 	switch targetType.Kind() {
 	case reflect.Uint8:
 		if uintValue > 255 {
@@ -607,7 +603,7 @@ func (d *Decoder) decodeToUint(inputValue any, targetValue reflect.Value, target
 	return nil
 }
 
-// decodeToFloat 解码为浮点数
+// decodeToFloat decodes into a floating-point value.
 func (d *Decoder) decodeToFloat(inputValue any, targetValue reflect.Value, targetType reflect.Type) error {
 	var floatValue float64
 
@@ -662,7 +658,7 @@ func (d *Decoder) decodeToFloat(inputValue any, targetValue reflect.Value, targe
 	return nil
 }
 
-// decodeToBool 解码为布尔值
+// decodeToBool decodes into a boolean.
 func (d *Decoder) decodeToBool(inputValue any, targetValue reflect.Value) error {
 	switch v := inputValue.(type) {
 	case bool:
@@ -704,7 +700,7 @@ func (d *Decoder) decodeToBool(inputValue any, targetValue reflect.Value) error 
 	return nil
 }
 
-// toSlice 将任意值转换为切片
+// toSlice converts an arbitrary value into a slice.
 func (d *Decoder) toSlice(inputValue any) ([]any, bool) {
 	switch v := inputValue.(type) {
 	case []any:
@@ -734,7 +730,7 @@ func (d *Decoder) toSlice(inputValue any) ([]any, bool) {
 		}
 		return result, true
 	default:
-		// 尝试使用反射处理其他切片类型
+		// Try reflection for other slice-like values.
 		value := reflect.ValueOf(inputValue)
 		if value.Kind() == reflect.Slice {
 			result := make([]any, value.Len())
@@ -747,7 +743,7 @@ func (d *Decoder) toSlice(inputValue any) ([]any, bool) {
 	}
 }
 
-// toMap 将任意值转换为 map[string]any。
+// toMap converts an arbitrary value into map[string]any.
 func (d *Decoder) toMap(inputValue any) (map[string]any, bool) {
 	if inputValue == nil {
 		return nil, false

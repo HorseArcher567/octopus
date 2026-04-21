@@ -2,20 +2,12 @@ package rpc
 
 import (
 	"github.com/HorseArcher567/octopus/pkg/discovery"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/stats"
 )
 
 // Option defines a functional option for configuring a Server.
 type Option func(s *Server)
-
-// WithEtcdClient sets the etcd client for transitional compatibility.
-func WithEtcdClient(etcdClient *clientv3.Client) Option {
-	return func(s *Server) {
-		s.etcdClient = etcdClient
-	}
-}
 
 // WithRegistrar sets the discovery registrar used for instance registration.
 func WithRegistrar(registrar discovery.Registrar) Option {

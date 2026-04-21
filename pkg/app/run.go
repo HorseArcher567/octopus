@@ -1,101 +1,123 @@
 package app
 
-// This file provides convenience entry points for constructing and running an
-// application from configuration.
-
 import (
 	"context"
 	"errors"
-	"os"
-	"os/signal"
-	"syscall"
+	"fmt"
+
+	"golang.org/x/sync/errgroup"
 )
 
-// runOptions collects settings for the package-level Run helper.
-type runOptions struct {
-	ctx           context.Context
-	signals       []os.Signal
-	startupHooks  []StartupHook
-	shutdownHooks []ShutdownHook
-}
-
-// RunOption customizes app.Run behavior.
-type RunOption func(*runOptions)
-
-// WithSignals overrides default process signals (SIGTERM/SIGINT).
-func WithSignals(sig ...os.Signal) RunOption {
-	return func(o *runOptions) {
-		o.signals = append([]os.Signal(nil), sig...)
-	}
-}
-
-// WithContext runs the app with a specific context instead of signal context.
-func WithContext(ctx context.Context) RunOption {
-	return func(o *runOptions) {
-		o.ctx = ctx
-	}
-}
-
-// WithStartupHook appends a startup hook.
-func WithStartupHook(h StartupHook) RunOption {
-	return func(o *runOptions) {
-		if h != nil {
-			o.startupHooks = append(o.startupHooks, h)
-		}
-	}
-}
-
-// WithShutdownHook appends a shutdown hook.
-func WithShutdownHook(h ShutdownHook) RunOption {
-	return func(o *runOptions) {
-		if h != nil {
-			o.shutdownHooks = append(o.shutdownHooks, h)
-		}
-	}
-}
-
-// Run creates an app instance and runs it with module lifecycle support.
-func Run(configPath string, mods []Module, opts ...RunOption) error {
-	o := runOptions{
-		signals: []os.Signal{syscall.SIGTERM, syscall.SIGINT},
-	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&o)
-		}
-	}
-
-	if configPath == "" {
-		return errors.New("app: config path is required")
-	}
-	a, err := Load(configPath)
-	if err != nil {
+// Run starts all configured services and blocks until context cancellation
+// or service error. Run may be called at most once per App instance.
+func (a *App) Run(ctx context.Context) (retErr error) {
+	if err := a.markRunOnce(); err != nil {
 		return err
 	}
-	a.Use(mods...)
-	for _, h := range o.startupHooks {
-		a.OnStartup(h)
-	}
-	for _, h := range o.shutdownHooks {
-		a.OnShutdown(h)
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	if o.ctx != nil {
-		return a.Run(o.ctx)
+	a.log.Info("starting application")
+	defer func() {
+		a.log.Info("shutting down application")
+		retErr = errors.Join(retErr, a.shutdown())
+	}()
+
+	if err := a.runStartupHooks(ctx); err != nil {
+		return err
 	}
-	return runWithSignals(a, o.signals)
+
+	g, groupCtx := errgroup.WithContext(ctx)
+	for _, svc := range a.services {
+		svc := svc
+		a.log.Info("starting service", "service", svc.Name())
+		g.Go(func() error {
+			if err := svc.Run(groupCtx); err != nil {
+				a.log.Error("service exited with error", "service", svc.Name(), "error", err)
+				return fmt.Errorf("service %q: %w", svc.Name(), err)
+			}
+			a.log.Info("service exited", "service", svc.Name())
+			return nil
+		})
+	}
+
+	waitErr := g.Wait()
+	if waitErr == nil {
+		return nil
+	}
+	if ctx.Err() != nil && (errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded)) {
+		return nil
+	}
+	return waitErr
 }
 
-// MustRun panics when Run returns error.
-func MustRun(configPath string, mods []Module, opts ...RunOption) {
-	if err := Run(configPath, mods, opts...); err != nil {
-		panic(err)
+func (a *App) runStartupHooks(ctx context.Context) error {
+	for i, h := range a.startupHooks {
+		a.log.Info("running startup hook", "hook", i)
+		if err := h(ctx); err != nil {
+			a.log.Error("startup hook failed", "hook", i, "error", err)
+			return fmt.Errorf("startup hook %d: %w", i, err)
+		}
 	}
+	return nil
 }
 
-// runWithSignals runs a using a context canceled by process signals.
-func runWithSignals(a *App, sig []os.Signal) error {
-	ctx, stop := signal.NotifyContext(context.Background(), sig...)
-	defer stop()
-	return a.Run(ctx)
+func (a *App) runShutdownHooks(ctx context.Context) error {
+	var errs []error
+	for i := len(a.shutdownHooks) - 1; i >= 0; i-- {
+		a.log.Info("running shutdown hook", "hook", i)
+		if err := a.shutdownHooks[i](ctx); err != nil {
+			a.log.Error("shutdown hook failed", "hook", i, "error", err)
+			errs = append(errs, fmt.Errorf("shutdown hook %d: %w", i, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (a *App) shutdown() error {
+	var shutdownErr error
+	a.shutdownOnce.Do(func() {
+		timeout := a.shutdownTimeout
+		if timeout == 0 {
+			timeout = defaultShutdownTimeout
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		var errs []error
+		err := a.stopServices(shutdownCtx)
+		if err == nil {
+			a.log.Info("all services stopped")
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = a.runShutdownHooks(shutdownCtx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if a.store != nil {
+			a.log.Info("closing store")
+			if err := a.store.Close(); err != nil {
+				a.log.Error("close store failed", "error", err)
+				errs = append(errs, fmt.Errorf("close store: %w", err))
+			}
+		}
+		shutdownErr = errors.Join(errs...)
+	})
+	return shutdownErr
+}
+
+func (a *App) stopServices(ctx context.Context) error {
+	var errs []error
+	for i := len(a.services) - 1; i >= 0; i-- {
+		svc := a.services[i]
+		a.log.Info("stopping service", "service", svc.Name())
+		if err := svc.Stop(ctx); err != nil {
+			a.log.Error("stop service failed", "service", svc.Name(), "error", err)
+			errs = append(errs, fmt.Errorf("stop service %q: %w", svc.Name(), err))
+		}
+	}
+	return errors.Join(errs...)
 }
