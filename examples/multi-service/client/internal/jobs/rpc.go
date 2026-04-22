@@ -3,32 +3,29 @@ package jobs
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/assemble"
-	"github.com/HorseArcher567/octopus/pkg/discovery"
 	"github.com/HorseArcher567/octopus/pkg/job"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
-	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func registerRPCJobs(ctx *assemble.Context, target string) error {
-	st := ctx.Store()
 	baseLog := ctx.Logger()
 
 	jobs := map[string]job.Func{
 		"rpc.user_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCUserFlow(runCtx, preferJobLog(log, baseLog), st, target)
+			return runRPCUserFlow(runCtx, preferJobLog(log, baseLog), target)
 		},
 		"rpc.order_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCOrderFlow(runCtx, preferJobLog(log, baseLog), st, target)
+			return runRPCOrderFlow(runCtx, preferJobLog(log, baseLog), target)
 		},
 		"rpc.product_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCProductFlow(runCtx, preferJobLog(log, baseLog), st, target)
+			return runRPCProductFlow(runCtx, preferJobLog(log, baseLog), target)
 		},
 	}
 
@@ -40,8 +37,8 @@ func registerRPCJobs(ctx *assemble.Context, target string) error {
 	return nil
 }
 
-func runRPCUserFlow(ctx context.Context, log *xlog.Logger, st store.Store, target string) error {
-	conn, err := newRPCClient(log, st, target)
+func runRPCUserFlow(ctx context.Context, log *xlog.Logger, target string) error {
+	conn, err := newRPCClient(log, target)
 	if err != nil {
 		return fmt.Errorf("new rpc client: %w", err)
 	}
@@ -63,8 +60,8 @@ func runRPCUserFlow(ctx context.Context, log *xlog.Logger, st store.Store, targe
 	return nil
 }
 
-func runRPCOrderFlow(ctx context.Context, log *xlog.Logger, st store.Store, target string) error {
-	conn, err := newRPCClient(log, st, target)
+func runRPCOrderFlow(ctx context.Context, log *xlog.Logger, target string) error {
+	conn, err := newRPCClient(log, target)
 	if err != nil {
 		return fmt.Errorf("new rpc client: %w", err)
 	}
@@ -85,8 +82,8 @@ func runRPCOrderFlow(ctx context.Context, log *xlog.Logger, st store.Store, targ
 	return nil
 }
 
-func runRPCProductFlow(ctx context.Context, log *xlog.Logger, st store.Store, target string) error {
-	conn, err := newRPCClient(log, st, target)
+func runRPCProductFlow(ctx context.Context, log *xlog.Logger, target string) error {
+	conn, err := newRPCClient(log, target)
 	if err != nil {
 		return fmt.Errorf("new rpc client: %w", err)
 	}
@@ -100,20 +97,9 @@ func runRPCProductFlow(ctx context.Context, log *xlog.Logger, st store.Store, ta
 	return nil
 }
 
-func newRPCClient(log *xlog.Logger, st store.Store, target string) (*grpc.ClientConn, error) {
-	dialOpts := []grpc.DialOption{}
-
-	switch {
-	case strings.HasPrefix(target, "direct:///"):
-		dialOpts = append(dialOpts, grpc.WithResolvers(discovery.NewDirectResolver(log).Builder()))
-	}
-
-	clientOptions, err := store.GetNamed[*rpc.ClientOptions](st, "default")
-	if err == nil && clientOptions != nil {
-		dialOpts = append(dialOpts, clientOptions.BuildDialOptions()...)
-	}
-
-	return rpc.NewClient(target, dialOpts...)
+func newRPCClient(log *xlog.Logger, target string) (*grpc.ClientConn, error) {
+	_ = log
+	return rpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
 func uniqueUser(prefix string) (string, string) {

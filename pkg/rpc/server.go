@@ -213,7 +213,7 @@ func (s *Server) registerInstance(ctx context.Context) error {
 	}
 	instance := discovery.Instance{
 		Name: s.config.Name,
-		Host: s.config.AdvertiseAddr,
+		Host: s.config.Advertise.Address,
 		Port: s.config.Port,
 	}
 	if err := s.registrar.Register(ctx, instance); err != nil {

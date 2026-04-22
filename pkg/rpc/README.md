@@ -16,19 +16,19 @@ Server extension points:
 - `WithServerOptions(...)`
 - `WithStatsHandlers(...)`
 - `WithRegistrar(...)`
+- `ServerConfig.Advertise` for config-driven registration intent
 
 Discovery usage:
 
 - RPC server registration uses `pkg/discovery.Registrar`
 - RPC client dialing is explicit
-- callers pass `grpc.WithResolvers(...)` using builders from `pkg/discovery`
+- resolver builders may be registered globally by scheme before dialing
 
 Example:
 
 ```go
-resolver := discovery.NewDirectResolver(log)
 conn, err := rpc.NewClient(
     "direct:///127.0.0.1:9001,127.0.0.1:9002",
-    grpc.WithResolvers(resolver.Builder()),
+    grpc.WithTransportCredentials(insecure.NewCredentials()),
 )
 ```

@@ -24,7 +24,7 @@ mysql -uroot -p octopus < schema.sql
 - `internal/order`: order business module
 - `internal/product`: product business module
 - `internal/shared`: small shared assembly helpers
-- `configs`: development and template configs
+- `config.yaml`: example application config
 
 Each business module keeps its own assembly, repository, service, and HTTP/gRPC transport code together.
 This keeps the example organized by business capability instead of global technical layers.
@@ -33,6 +33,7 @@ This keeps the example organized by business capability instead of global techni
 
 The example is assembled through business-capability actions:
 
+- custom setup: `shared.SetupHello()`
 - `shared.AssembleHello`
 - `user.Assemble`
 - `order.Assemble`
@@ -43,6 +44,7 @@ Application entry in `main.go`:
 ```go
 a, err := assemble.Load(
     configFile,
+    assemble.WithSetupSteps(shared.SetupHello()),
     assemble.With(
         shared.AssembleHello,
         user.Assemble,
@@ -56,6 +58,10 @@ if err != nil {
 
 return a.Run(ctx)
 ```
+
+This example also shows a minimal custom setup step.
+`shared.SetupHello()` reads `hello.message` from config during setup and provides it as a shared resource.
+`shared.AssembleHello` then reads that resource from `store.Store` and registers the HTTP `/hello` endpoint.
 
 Each module assembles its own repository, service, and HTTP/gRPC registrations from shared infrastructure dependencies in `store.Store`.
 Business objects are not written back into the store as container-managed dependencies.

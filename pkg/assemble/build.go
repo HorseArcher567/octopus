@@ -2,12 +2,22 @@ package assemble
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/HorseArcher567/octopus/pkg/app"
+	"github.com/HorseArcher567/octopus/pkg/config"
 )
 
-func build(s *state, opts ...Option) (*app.App, error) {
+func build(raw *config.Config, s *state, opts ...Option) (*app.App, error) {
 	o := buildOptions(opts...)
+
+	setupCtx, err := newSetupContext(raw, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := applySetupSteps(setupCtx, o.setupSteps); err != nil {
+		return nil, err
+	}
 
 	ctx, err := newContext(s)
 	if err != nil {
@@ -17,7 +27,25 @@ func build(s *state, opts ...Option) (*app.App, error) {
 		return nil, err
 	}
 
-	return assembleApp(s, ctx), nil
+	appCfg, err := loadAppConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	return assembleApp(s, ctx, appCfg), nil
+}
+
+func loadAppConfig(raw *config.Config) (*app.Config, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("assemble: config cannot be nil")
+	}
+	var cfg app.Config
+	if _, ok := raw.Get("app"); !ok {
+		return &cfg, nil
+	}
+	if err := raw.UnmarshalKey("app", &cfg); err != nil {
+		return nil, fmt.Errorf("assemble: decode config \"app\": %w", err)
+	}
+	return &cfg, nil
 }
 
 func buildOptions(opts ...Option) options {
@@ -28,6 +56,27 @@ func buildOptions(opts ...Option) options {
 		}
 	}
 	return o
+}
+
+func applySetupSteps(ctx *SetupContext, steps []SetupStep) error {
+	seen := make(map[string]struct{}, len(steps))
+	for _, step := range steps {
+		name := strings.TrimSpace(step.Name)
+		if name == "" {
+			return fmt.Errorf("assemble: setup step name is required")
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("assemble: duplicate setup step %q", name)
+		}
+		seen[name] = struct{}{}
+		if step.Run == nil {
+			return fmt.Errorf("assemble: setup step %q run is required", name)
+		}
+		if err := step.Run(ctx); err != nil {
+			return fmt.Errorf("assemble: setup step %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func applyActions(ctx *Context, actions []Action) error {
@@ -42,11 +91,11 @@ func applyActions(ctx *Context, actions []Action) error {
 	return nil
 }
 
-func assembleApp(s *state, ctx *Context) *app.App {
+func assembleApp(s *state, ctx *Context, appCfg *app.Config) *app.App {
 	appOpts := make([]app.Option, 0, 2)
 	appOpts = append(appOpts, app.WithStore(s.store))
-	if s.cfg.App.ShutdownTimeout > 0 {
-		appOpts = append(appOpts, app.WithShutdownTimeout(s.cfg.App.ShutdownTimeout))
+	if appCfg != nil && appCfg.ShutdownTimeout > 0 {
+		appOpts = append(appOpts, app.WithShutdownTimeout(appCfg.ShutdownTimeout))
 	}
 
 	a := app.New(s.log, appOpts...)

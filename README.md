@@ -89,7 +89,7 @@ func main() {
 
 ### Run the example service
 
-The multi-service server example is organized by business capability (`user`, `order`, `product`) and assembled through business actions.
+The multi-service server example is organized by business capability (`user`, `order`, `product`), assembled through business actions, and also shows a minimal custom setup step via `WithSetupSteps(...)`.
 
 ```bash
 cd examples/multi-service/server

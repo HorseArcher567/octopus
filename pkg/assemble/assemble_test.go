@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/rpc"
+	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
+	grpcresolver "google.golang.org/grpc/resolver"
 )
 
 type testService struct {
@@ -61,6 +65,73 @@ func TestNew_ActionError(t *testing.T) {
 		return errors.New("boom")
 	}))
 	if err == nil || err.Error() != "assemble: action 0: boom" {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_SetupStepProvidesResourceForAction(t *testing.T) {
+	cfg := minimalConfig()
+	cfg.Set("sqlite.name", "default")
+	cfg.Set("sqlite.dsn", "file:test.db")
+
+	_, err := New(
+		cfg,
+		WithSetupSteps(SetupStep{
+			Name: "sqlite",
+			Run: func(ctx *SetupContext) error {
+				type sqliteConfig struct {
+					Name string `yaml:"name"`
+					DSN  string `yaml:"dsn"`
+				}
+				c, err := DecodeSetupConfig[sqliteConfig](ctx, "sqlite")
+				if err != nil {
+					return err
+				}
+				if c.Name != "default" || c.DSN != "file:test.db" {
+					return errors.New("unexpected sqlite config")
+				}
+				return ctx.Provide("default", c.DSN)
+			},
+		}),
+		With(func(ctx *Context) error {
+			v, err := store.GetNamed[string](ctx.Store(), "default")
+			if err != nil {
+				return err
+			}
+			if v != "file:test.db" {
+				return errors.New("unexpected provided value")
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_SetupStepNameRequired(t *testing.T) {
+	cfg := minimalConfig()
+	_, err := New(cfg, WithSetupSteps(SetupStep{Run: func(*SetupContext) error { return nil }}))
+	if err == nil || err.Error() != "assemble: setup step name is required" {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_SetupStepRunRequired(t *testing.T) {
+	cfg := minimalConfig()
+	_, err := New(cfg, WithSetupSteps(SetupStep{Name: "sqlite"}))
+	if err == nil || err.Error() != "assemble: setup step \"sqlite\" run is required" {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_SetupStepDuplicateName(t *testing.T) {
+	cfg := minimalConfig()
+	_, err := New(cfg,
+		WithSetupSteps(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
+		WithSetupSteps(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
+	)
+	if err == nil || err.Error() != "assemble: duplicate setup step \"sqlite\"" {
 		t.Fatalf("New() error = %v", err)
 	}
 }
@@ -209,5 +280,80 @@ func TestNew_JobSchedulerLoggerMustExistInConfiguredLoggers(t *testing.T) {
 	_, err := New(cfg)
 	if err == nil || err.Error() != "assemble: setup jobs: assemble: jobScheduler.logger: logger \"missing\" not found" {
 		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_RPCServerAdvertiseRequiresEtcdName(t *testing.T) {
+	cfg := minimalConfig()
+	cfg.Set("rpcServer", map[string]any{
+		"name": "demo",
+		"host": "127.0.0.1",
+		"port": 9001,
+		"advertise": map[string]any{
+			"address": "127.0.0.1",
+		},
+	})
+
+	_, err := New(cfg)
+	if err == nil || err.Error() != "assemble: setup rpc: assemble: rpcServer.advertise.etcd is required" {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_RPCServerAdvertiseEtcdMustExist(t *testing.T) {
+	cfg := minimalConfig()
+	cfg.Set("rpcServer", map[string]any{
+		"name": "demo",
+		"host": "127.0.0.1",
+		"port": 9001,
+		"advertise": map[string]any{
+			"address": "127.0.0.1",
+			"etcd":    "missing",
+		},
+	})
+
+	_, err := New(cfg)
+	if err == nil || !strings.Contains(err.Error(), "assemble: setup rpc: assemble: rpcServer.advertise.etcd:") {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+func TestNew_RPCResolverDirectRegistered(t *testing.T) {
+	cfg := minimalConfig()
+	cfg.Set("rpcResolver.direct", true)
+
+	_, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if grpcresolver.Get("direct") == nil {
+		t.Fatalf("direct resolver was not registered")
+	}
+}
+
+func TestNew_RPCResolverEtcdMustExist(t *testing.T) {
+	cfg := minimalConfig()
+	cfg.Set("rpcResolver.etcd", "missing")
+
+	_, err := New(cfg)
+	if err == nil || !strings.Contains(err.Error(), "assemble: setup rpc-resolver: assemble: rpcResolver.etcd:") {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
+type testResolverBuilder struct{ scheme string }
+
+func (b testResolverBuilder) Scheme() string { return b.scheme }
+func (b testResolverBuilder) Build(grpcresolver.Target, grpcresolver.ClientConn, grpcresolver.BuildOptions) (grpcresolver.Resolver, error) {
+	return nil, nil
+}
+
+func TestRegisterResolver_IgnoresDuplicateScheme(t *testing.T) {
+	builder := testResolverBuilder{scheme: "octopus-test-resolver"}
+	if !rpc.RegisterResolver(builder) {
+		t.Fatalf("first RegisterResolver() should register scheme")
+	}
+	if rpc.RegisterResolver(builder) {
+		t.Fatalf("second RegisterResolver() should be ignored")
 	}
 }

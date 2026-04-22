@@ -1,11 +1,15 @@
 logger:
   - name: default
-    level: info
+    level: debug
     format: text
     output: stdout
 
 app:
   logger: default
+
+rpcResolver:
+  direct: true
+  etcd: default
 
 etcd:
   - name: default
@@ -14,10 +18,3 @@ etcd:
     dialTimeout: 5s
     username: ${ETCD_USERNAME:root}
     password: ${ETCD_PASSWORD:123456}
-
-rpcClientOptions:
-  loadBalancingPolicy: round_robin
-  keepalive:
-    time: 30s
-    timeout: 10s
-    permitWithoutStream: true

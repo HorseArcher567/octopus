@@ -24,7 +24,7 @@ go run . -config config.yaml \
 
 - `main.go`: process entrypoint
 - `internal/jobs`: job registration and scenario implementations
-- `config.yaml`: client infrastructure config
+- `config.yaml`: client infrastructure config, including `rpcResolver` scheme registration
 
 ## Registered Jobs
 
@@ -39,6 +39,7 @@ go run . -config config.yaml \
 ## What It Does
 
 1. Build a short-lived Octopus app from config
+   - builtin setup registers configured RPC resolver schemes from `rpcResolver`
 2. Register RPC and HTTP demo scenarios as jobs
 3. Run the app so the job scheduler executes those scenarios concurrently
 4. Exit naturally after the jobs complete

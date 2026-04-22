@@ -59,11 +59,11 @@ type App struct {
 	startupHooks  []StartupHook
 	shutdownHooks []ShutdownHook
 
-	shutdownTimeout time.Duration
+	runMu  sync.Mutex
+	hasRun bool
 
-	shutdownOnce sync.Once
-	runMu        sync.Mutex
-	hasRun       bool
+	shutdownOnce    sync.Once
+	shutdownTimeout time.Duration
 }
 
 // New creates a new App from already assembled runtime inputs.

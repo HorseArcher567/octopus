@@ -9,15 +9,17 @@ logger:
 app:
   logger: default
 
+hello:
+  message: hello from custom setup step
+
 rpcServer:
   name: multi-service-demo
   host: 0.0.0.0
   port: 9001
   enableReflection: true
-  advertiseAddr: 127.0.0.1
-
-rpcClientOptions:
-  loadBalancingPolicy: round_robin
+  advertise:
+    address: 127.0.0.1
+    etcd: default
 
 apiServer:
   name: multi-service-demo

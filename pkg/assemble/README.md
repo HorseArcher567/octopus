@@ -19,7 +19,7 @@ The public entrypoints live in `assemble.go`, while internal setup and final app
 - creating named infrastructure instances and placing them into the store
 - initializing logger infrastructure from `logger` config and selecting component loggers (`app`, `apiServer`, `rpcServer`, `jobScheduler`) from named loggers
 - initializing framework runtime objects through an internal ordered setup pipeline
-- exposing a business-facing assembly context
+- exposing a setup-facing extension context and a business-facing assembly context
 - collecting startup hooks, shutdown hooks, and runtime services
 - constructing and returning `*app.App`
 
@@ -32,9 +32,15 @@ It is the outer application-construction layer.
 ```go
 type Action func(*Context) error
 
+type SetupStep struct {
+    Name string
+    Run  func(*SetupContext) error
+}
+
 type Option func(*options)
 
 func With(actions ...Action) Option
+func WithSetupSteps(steps ...SetupStep) Option
 func Load(path string, opts ...Option) (*app.App, error)
 func New(cfg *config.Config, opts ...Option) (*app.App, error)
 ```
@@ -84,9 +90,16 @@ rpcServer:
   name: demo
   host: 0.0.0.0
   port: 9001
+  advertise:
+    address: 127.0.0.1
+    etcd: default
 
 jobScheduler:
   logger: jobs
+
+rpcResolver:
+  direct: true
+  etcd: default
 ```
 
 Semantics:
@@ -94,9 +107,13 @@ Semantics:
 - `logger`: defines named logger instances and is handled like other infrastructure config sections
 - `app.logger`: selects the default logger used by the assembled app
 - `apiServer.logger`, `rpcServer.logger`, `jobScheduler.logger`: optionally override the app logger for those builtin components
+- `rpcServer.advertise.address`: publishes the service instance address to service discovery
+- `rpcServer.advertise.etcd`: selects the named etcd client used for service registration
+- `rpcResolver.direct`: registers the `direct:///` resolver scheme for RPC clients
+- `rpcResolver.etcd`: selects the named etcd client used to register the `etcd:///` resolver scheme
 - `app.shutdownTimeout`: configures graceful shutdown timeout
 
-All configured loggers are created and placed into the shared store.
+All configured loggers are created during builtin setup and placed into the shared store.
 The app logger is selected from the configured named loggers via `app.logger`.
 Builtin components then either:
 
@@ -104,6 +121,46 @@ Builtin components then either:
 - fall back to the app logger when no component logger is configured
 
 ---
+
+## Custom setup extension model
+
+In addition to builtin setup, applications may contribute custom setup steps.
+A custom setup step runs after builtin framework setup and before business `Action`s.
+It is the intended extension point for preparing shared infrastructure that business assembly will later consume from the store.
+Builtin setup steps and custom setup steps both follow the same step-driven model: each step reads the config section it needs, performs setup, and writes setup results into shared runtime state or the store.
+
+Typical uses include:
+
+- initializing sqlite or other custom database clients
+- creating third-party SDK clients
+- setting up feature-flag, metrics, or messaging clients
+- registering shared infrastructure resources into the store for later use by actions
+
+The execution order is:
+
+```text
+builtin setup -> custom setup steps -> business actions -> app assembly
+```
+
+`SetupContext` intentionally exposes a narrow capability surface:
+
+```go
+func DecodeSetupConfig[T any](ctx *SetupContext, key string) (*T, error)
+func (c *SetupContext) Logger() *xlog.Logger
+func (c *SetupContext) NamedLogger(name string) (*xlog.Logger, error)
+func (c *SetupContext) Provide(name string, value any, opts ...store.SetOption) error
+```
+
+Semantics:
+
+- `DecodeSetupConfig(...)`: decodes a config subtree for a custom setup step
+- `Logger()`: returns the app logger for ordinary setup logging
+- `NamedLogger(name)`: selects a specific configured logger by name
+- `Provide(...)`: registers a shared infrastructure resource into the store for later setup steps or actions
+
+Custom setup steps should generally focus on infrastructure preparation, not business assembly.
+Business module wiring, API/RPC registration, jobs, hooks, and custom runtime services should remain in `Action`.
+In practice, setup steps are the recommended place to write shared resources into the store, while actions are the recommended place to read those resources and assemble business modules.
 
 ## Business integration model
 
@@ -149,7 +206,7 @@ func (c *Context) AddService(s app.Service)
 It is the only assembly surface business code should need.
 Internally, it is the business-facing capability view over assemble's private setup state plus collectors for hooks and custom services.
 
-`Store()` is primarily intended for reading shared dependencies assembled by the framework or infrastructure extensions. Writing new shared resources through `Store()` should be done sparingly and with clear project-level conventions.
+`Store()` is primarily intended for reading shared dependencies assembled by builtin setup or custom setup steps. Writing new shared resources directly through `Store()` should be done sparingly and with clear project-level conventions; for setup-time registration, prefer `SetupContext.Provide(...)`.
 
 ---
 
@@ -178,13 +235,49 @@ package main
 
 import (
     "context"
+    "database/sql"
+
+    _ "modernc.org/sqlite"
 
     "github.com/HorseArcher567/octopus/pkg/assemble"
+    "github.com/HorseArcher567/octopus/pkg/store"
 )
+
+type SQLiteConfig struct {
+    Name string `yaml:"name"`
+    DSN  string `yaml:"dsn"`
+}
+
+func sqliteStep() assemble.SetupStep {
+    return assemble.SetupStep{
+        Name: "sqlite",
+        Run: func(ctx *assemble.SetupContext) error {
+            cfg, err := assemble.DecodeSetupConfig[SQLiteConfig](ctx, "sqlite")
+            if err != nil {
+                return err
+            }
+
+            db, err := sql.Open("sqlite", cfg.DSN)
+            if err != nil {
+                return err
+            }
+            if err := db.Ping(); err != nil {
+                _ = db.Close()
+                return err
+            }
+            if err := ctx.Provide(cfg.Name, db, store.WithClose(db.Close)); err != nil {
+                _ = db.Close()
+                return err
+            }
+            return nil
+        },
+    }
+}
 
 func main() {
     a, err := assemble.Load(
         "config.yaml",
+        assemble.WithSetupSteps(sqliteStep()),
         assemble.With(
             user.Assemble,
             order.Assemble,
@@ -200,16 +293,23 @@ func main() {
 }
 ```
 
+In later business actions, the provided resource can be read from the store:
+
+```go
+db, err := store.GetNamed[*sql.DB](ctx.Store(), "default")
+```
+
 ---
 
 ## Internal setup model
 
-Internally, `pkg/assemble` first decodes configuration into a typed assemble config, then runs an ordered setup pipeline, and finally applies business `Action`s to construct the app.
+Internally, `pkg/assemble` runs an ordered builtin setup pipeline directly against raw config, then applies any custom setup steps, and finally applies business `Action`s to construct the app.
+Builtin and custom setup both participate in the same overall step-driven setup model, but builtin setup remains framework-controlled while custom setup is user-contributed through `WithSetupSteps(...)`.
 
 Conceptually the flow is:
 
 ```text
-raw config -> typed assemble config -> setup steps -> action context -> app assembly
+raw config -> builtin setup steps -> custom setup steps -> action context -> app assembly
 ```
 
 The setup pipeline is intentionally internal and ordered. It exists to keep the setup mainline short while still allowing framework setup capabilities to grow as a small, explicit list.

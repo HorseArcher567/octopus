@@ -45,6 +45,7 @@ func TestServerE2E(t *testing.T) {
 
 	a, err := assemble.New(
 		cfg,
+		assemble.WithSetupSteps(shared.SetupHello()),
 		assemble.With(
 			shared.AssembleHello,
 			user.Assemble,
@@ -186,12 +187,14 @@ func writeConfig(t *testing.T, dsn string, rpcPort, apiPort int) string {
 app:
   logger: default
 
+hello:
+  message: hello from custom setup step
+
 rpcServer:
   name: multi-service-e2e
   host: 127.0.0.1
   port: %d
   enableReflection: false
-  advertiseAddr: ""
 
 apiServer:
   name: multi-service-e2e

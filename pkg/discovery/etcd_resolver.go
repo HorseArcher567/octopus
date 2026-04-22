@@ -45,6 +45,9 @@ func (b *etcdGRPCResolverBuilder) Build(target grpcresolver.Target, cc grpcresol
 		done:      make(chan struct{}),
 	}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
+	if r.log != nil {
+		r.log.Debug("starting etcd grpc resolver", "target", r.target)
+	}
 	go r.watch()
 	return r, nil
 }
@@ -68,22 +71,38 @@ func (r *etcdGRPCResolver) ResolveNow(grpcresolver.ResolveNowOptions) {
 }
 
 func (r *etcdGRPCResolver) Close() {
+	if r.log != nil {
+		r.log.Debug("closing etcd grpc resolver", "target", r.target)
+	}
 	if r.cancel != nil {
 		r.cancel()
 	}
 	select {
 	case <-r.done:
-	case <-time.After(100 * time.Millisecond):
+		if r.log != nil {
+			r.log.Debug("etcd grpc resolver closed", "target", r.target)
+		}
+	case <-time.After(5 * time.Millisecond):
+		if r.log != nil {
+			r.log.Debug("timed out waiting for etcd grpc resolver to close", "target", r.target)
+		}
 	}
 }
 
 func (r *etcdGRPCResolver) watch() {
 	defer close(r.done)
+	if r.log != nil {
+		r.log.Debug("etcd grpc resolver watch loop started", "target", r.target)
+		defer r.log.Debug("etcd grpc resolver watch loop exited", "target", r.target)
+	}
 	_ = r.reload()
 	for {
 		watchCh := r.client.Watch(r.ctx, etcdPrefix(r.target), clientv3.WithPrefix())
 		for resp := range watchCh {
 			if err := resp.Err(); err != nil {
+				if r.log != nil {
+					r.log.Debug("etcd grpc resolver watch stream ended", "target", r.target, "error", err)
+				}
 				break
 			}
 			_ = r.reload()
@@ -99,6 +118,9 @@ func (r *etcdGRPCResolver) watch() {
 func (r *etcdGRPCResolver) reload() error {
 	resp, err := r.client.Get(r.ctx, etcdPrefix(r.target), clientv3.WithPrefix())
 	if err != nil {
+		if r.log != nil {
+			r.log.Debug("etcd grpc resolver reload failed", "target", r.target, "error", err)
+		}
 		return err
 	}
 	addresses := make(map[string]grpcresolver.Address, len(resp.Kvs))

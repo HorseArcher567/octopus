@@ -18,6 +18,7 @@ func main() {
 
 	a, err := assemble.Load(
 		*configFile,
+		assemble.WithSetupSteps(shared.SetupHello()),
 		assemble.With(
 			shared.AssembleHello,
 			user.Assemble,

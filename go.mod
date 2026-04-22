@@ -12,7 +12,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/spf13/cobra v1.8.1
-	go.etcd.io/etcd/client/v3 v3.6.5
+	go.etcd.io/etcd/client/v3 v3.6.10
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -52,8 +52,8 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
-	go.etcd.io/etcd/api/v3 v3.6.5 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.6.5 // indirect
+	go.etcd.io/etcd/api/v3 v3.6.10 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.6.10 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect

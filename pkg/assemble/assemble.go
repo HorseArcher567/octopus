@@ -8,8 +8,17 @@ import (
 // Action contributes business assembly to the application build process.
 type Action func(*Context) error
 
+// SetupStep contributes custom setup work that runs after builtin setup and
+// before business actions. Setup steps are intended for preparing shared
+// infrastructure resources that later actions will consume.
+type SetupStep struct {
+	Name string
+	Run  func(*SetupContext) error
+}
+
 type options struct {
-	actions []Action
+	actions    []Action
+	setupSteps []SetupStep
 }
 
 // Option customizes facade assembly behavior.
@@ -19,6 +28,13 @@ type Option func(*options)
 func With(actions ...Action) Option {
 	return func(o *options) {
 		o.actions = append(o.actions, actions...)
+	}
+}
+
+// WithSetupSteps registers one or more custom setup steps.
+func WithSetupSteps(steps ...SetupStep) Option {
+	return func(o *options) {
+		o.setupSteps = append(o.setupSteps, steps...)
 	}
 }
 
@@ -44,5 +60,5 @@ func New(cfg *config.Config, opts ...Option) (_ *app.App, retErr error) {
 			_ = state.store.Close()
 		}
 	}()
-	return build(state, opts...)
+	return build(cfg, state, opts...)
 }

@@ -63,6 +63,14 @@ func (ck *ClientKeepalive) Normalize() {
 	}
 }
 
+type ResolverConfig struct {
+	// Direct enables the direct:/// resolver scheme.
+	Direct bool `yaml:"direct" json:"direct" toml:"direct"`
+
+	// Etcd selects the named etcd client used to register the etcd:/// resolver scheme.
+	Etcd string `yaml:"etcd" json:"etcd" toml:"etcd"`
+}
+
 type ClientOptions struct {
 	// LoadBalancingPolicy is the load balancing policy for the gRPC client.
 	// Common values: "round_robin", "pick_first", "grpclb" (default: "round_robin").
@@ -261,6 +269,14 @@ func (k *ServerKeepalive) BuildServerOptions() []grpc.ServerOption {
 	return opts
 }
 
+type ServerAdvertiseConfig struct {
+	// Address is the address published to service discovery.
+	Address string `yaml:"address" json:"address" toml:"address"`
+
+	// Etcd is the name of the etcd client used for service registration.
+	Etcd string `yaml:"etcd" json:"etcd" toml:"etcd"`
+}
+
 // ServerConfig is the configuration for the RPC server.
 type ServerConfig struct {
 	// Logger is the name of the logger to use for the RPC server.
@@ -280,9 +296,9 @@ type ServerConfig struct {
 	// Recommended for development/test environments to enable grpcurl/grpcui debugging.
 	EnableReflection bool `yaml:"enableReflection" json:"enableReflection" toml:"enableReflection"`
 
-	// AdvertiseAddr is the address registered to etcd.
-	// If empty, the service will not be registered to etcd.
-	AdvertiseAddr string `yaml:"advertiseAddr" json:"advertiseAddr" toml:"advertiseAddr"`
+	// Advertise configures service discovery registration.
+	// If nil, the service instance will not be registered.
+	Advertise *ServerAdvertiseConfig `yaml:"advertise" json:"advertise" toml:"advertise"`
 
 	// Keepalive is the keepalive configuration for the server.
 	// If nil, gRPC defaults will be used.
@@ -303,11 +319,19 @@ func (c *ServerConfig) Validate() error {
 		return errors.New("server port is required")
 	}
 
+	if c.Advertise != nil {
+		if c.Advertise.Address == "" {
+			return errors.New("server advertise address is required")
+		}
+		if c.Advertise.Etcd == "" {
+			return errors.New("server advertise etcd is required")
+		}
+	}
+
 	return nil
 }
 
 // ShouldRegisterInstance reports whether the service instance should be registered.
-// If AdvertiseAddr is configured, the service instance will be registered to etcd.
 func (c *ServerConfig) ShouldRegisterInstance() bool {
-	return c != nil && c.AdvertiseAddr != ""
+	return c != nil && c.Advertise != nil
 }
