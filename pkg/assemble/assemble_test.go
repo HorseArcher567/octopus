@@ -59,24 +59,24 @@ func TestNew_NilConfig(t *testing.T) {
 	}
 }
 
-func TestNew_ActionError(t *testing.T) {
+func TestNew_DomainError(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, With(func(ctx *Context) error {
+	_, err := New(cfg, WithDomains(func(ctx *Context) error {
 		return errors.New("boom")
 	}))
-	if err == nil || err.Error() != "assemble: action 0: boom" {
+	if err == nil || err.Error() != "assemble: domain 0: boom" {
 		t.Fatalf("New() error = %v", err)
 	}
 }
 
-func TestNew_SetupStepProvidesResourceForAction(t *testing.T) {
+func TestNew_SetupStepProvidesResourceForDomain(t *testing.T) {
 	cfg := minimalConfig()
 	cfg.Set("sqlite.name", "default")
 	cfg.Set("sqlite.dsn", "file:test.db")
 
 	_, err := New(
 		cfg,
-		WithSetupSteps(SetupStep{
+		WithSetup(SetupStep{
 			Name: "sqlite",
 			Run: func(ctx *SetupContext) error {
 				type sqliteConfig struct {
@@ -93,7 +93,7 @@ func TestNew_SetupStepProvidesResourceForAction(t *testing.T) {
 				return ctx.Provide("default", c.DSN)
 			},
 		}),
-		With(func(ctx *Context) error {
+		WithDomains(func(ctx *Context) error {
 			v, err := store.GetNamed[string](ctx.Store(), "default")
 			if err != nil {
 				return err
@@ -111,7 +111,7 @@ func TestNew_SetupStepProvidesResourceForAction(t *testing.T) {
 
 func TestNew_SetupStepNameRequired(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, WithSetupSteps(SetupStep{Run: func(*SetupContext) error { return nil }}))
+	_, err := New(cfg, WithSetup(SetupStep{Run: func(*SetupContext) error { return nil }}))
 	if err == nil || err.Error() != "assemble: setup step name is required" {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -119,7 +119,7 @@ func TestNew_SetupStepNameRequired(t *testing.T) {
 
 func TestNew_SetupStepRunRequired(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, WithSetupSteps(SetupStep{Name: "sqlite"}))
+	_, err := New(cfg, WithSetup(SetupStep{Name: "sqlite"}))
 	if err == nil || err.Error() != "assemble: setup step \"sqlite\" run is required" {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -128,15 +128,15 @@ func TestNew_SetupStepRunRequired(t *testing.T) {
 func TestNew_SetupStepDuplicateName(t *testing.T) {
 	cfg := minimalConfig()
 	_, err := New(cfg,
-		WithSetupSteps(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
-		WithSetupSteps(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
+		WithSetup(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
+		WithSetup(SetupStep{Name: "sqlite", Run: func(*SetupContext) error { return nil }}),
 	)
 	if err == nil || err.Error() != "assemble: duplicate setup step \"sqlite\"" {
 		t.Fatalf("New() error = %v", err)
 	}
 }
 
-func TestNew_ActionsCanRegisterHooksAndServices(t *testing.T) {
+func TestNew_DomainsCanRegisterHooksAndServices(t *testing.T) {
 	cfg := minimalConfig()
 
 	var mu sync.Mutex
@@ -147,7 +147,7 @@ func TestNew_ActionsCanRegisterHooksAndServices(t *testing.T) {
 		events = append(events, v)
 	}
 
-	a, err := New(cfg, With(func(ctx *Context) error {
+	a, err := New(cfg, WithDomains(func(ctx *Context) error {
 		ctx.OnStartup(func(context.Context) error {
 			record("startup")
 			return nil
@@ -202,11 +202,11 @@ func TestLoad(t *testing.T) {
 
 func TestContext_RegisterWithoutConfiguredRuntime(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, With(func(ctx *Context) error {
+	_, err := New(cfg, WithDomains(func(ctx *Context) error {
 		if err := ctx.RegisterAPI(func(*api.Engine) {}); err == nil || !errors.Is(err, ErrAPINotConfigured) {
 			return errors.New("expected api not configured")
 		}
-		if err := ctx.RegisterRPC(func(*grpc.Server) {}); err == nil || !errors.Is(err, ErrRPCNotConfigured) {
+		if err := ctx.RegisterRPC(func(grpc.ServiceRegistrar) {}); err == nil || !errors.Is(err, ErrRPCNotConfigured) {
 			return errors.New("expected rpc not configured")
 		}
 		return nil
@@ -218,7 +218,7 @@ func TestContext_RegisterWithoutConfiguredRuntime(t *testing.T) {
 
 func TestContext_RegisterJob_DefaultSchedulerAvailable(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, With(func(ctx *Context) error {
+	_, err := New(cfg, WithDomains(func(ctx *Context) error {
 		return ctx.RegisterJob("job", func(context.Context, *xlog.Logger) error { return nil })
 	}))
 	if err != nil {

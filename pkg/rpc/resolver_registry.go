@@ -7,7 +7,7 @@ import (
 )
 
 var resolverRegistry struct {
-	mu       sync.Mutex
+	mu         sync.Mutex
 	registered map[string]struct{}
 }
 

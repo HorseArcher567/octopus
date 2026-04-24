@@ -34,6 +34,7 @@ var builtinSetupSteps = []builtinSetupStep{
 	{name: "app-logger", run: selectAppLogger},
 	{name: "etcd", run: setupEtcd},
 	{name: "mysql", run: setupMySQL},
+	{name: "sqlite", run: setupSQLite},
 	{name: "redis", run: setupRedis},
 	{name: "rpc-resolver", run: setupRPCResolver},
 	{name: "api", run: setupAPI},

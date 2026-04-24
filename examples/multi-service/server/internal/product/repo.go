@@ -34,7 +34,9 @@ func (r *repository) GetByID(ctx context.Context, productID int64) (*Product, er
 	query := `SELECT product_id, name, description, price, stock, created_at, updated_at FROM products WHERE product_id = ?`
 	err := r.db.GetContext(ctx, &rec, query, productID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) { return nil, fmt.Errorf("product %d: %w", productID, ErrNotFound) }
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("product %d: %w", productID, ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to get product: %w", err)
 	}
 	return &Product{ProductID: rec.ProductID, Name: rec.Name, Description: rec.Description, Price: rec.Price, Stock: rec.Stock, CreatedAt: rec.CreatedAt, UpdatedAt: rec.UpdatedAt}, nil
@@ -42,8 +44,12 @@ func (r *repository) GetByID(ctx context.Context, productID int64) (*Product, er
 
 func (r *repository) List(ctx context.Context, page, pageSize int32) ([]*Product, int64, error) {
 	offset := (page - 1) * pageSize
-	if offset < 0 { offset = 0 }
-	if pageSize <= 0 { pageSize = 10 }
+	if offset < 0 {
+		offset = 0
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
 	var total int64
 	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM products`); err != nil {
 		return nil, 0, fmt.Errorf("failed to count products: %w", err)

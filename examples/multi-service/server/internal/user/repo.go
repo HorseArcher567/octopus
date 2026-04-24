@@ -45,7 +45,7 @@ func (r *repository) GetByID(ctx context.Context, userID int64) (*User, error) {
 }
 
 func (r *repository) Create(ctx context.Context, user *User) (int64, error) {
-	query := `INSERT INTO users (username, email, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`
+	query := `INSERT INTO users (username, email, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
 	result, err := r.db.ExecContext(ctx, query, user.Username, user.Email)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create user: %w", err)

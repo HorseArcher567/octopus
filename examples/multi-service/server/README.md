@@ -23,33 +23,33 @@ mysql -uroot -p octopus < schema.sql
 - `internal/user`: user business module
 - `internal/order`: order business module
 - `internal/product`: product business module
-- `internal/shared`: small shared assembly helpers
+- `internal/shared`: small shared registration helpers
 - `config.yaml`: example application config
 
-Each business module keeps its own assembly, repository, service, and HTTP/gRPC transport code together.
-This keeps the example organized by business capability instead of global technical layers.
+Each business module keeps its own registration, repository, service, and HTTP/gRPC transport code together.
+This keeps the example organized by business domain instead of global technical layers.
 
-## Assembly
+## Domain registration
 
-The example is assembled through business-capability actions:
+The example is assembled through business domains:
 
 - custom setup: `shared.SetupHello()`
-- `shared.AssembleHello`
-- `user.Assemble`
-- `order.Assemble`
-- `product.Assemble`
+- `shared.RegisterHello`
+- `user.Register`
+- `order.Register`
+- `product.Register`
 
 Application entry in `main.go`:
 
 ```go
 a, err := assemble.Load(
     configFile,
-    assemble.WithSetupSteps(shared.SetupHello()),
-    assemble.With(
-        shared.AssembleHello,
-        user.Assemble,
-        order.Assemble,
-        product.Assemble,
+    assemble.WithSetup(shared.SetupHello()),
+    assemble.WithDomains(
+        shared.RegisterHello,
+        user.Register,
+        order.Register,
+        product.Register,
     ),
 )
 if err != nil {
@@ -61,14 +61,14 @@ return a.Run(ctx)
 
 This example also shows a minimal custom setup step.
 `shared.SetupHello()` reads `hello.message` from config during setup and provides it as a shared resource.
-`shared.AssembleHello` then reads that resource from `store.Store` and registers the HTTP `/hello` endpoint.
+`shared.RegisterHello` then reads that resource from `store.Store` and registers the HTTP `/hello` endpoint.
 
-Each module assembles its own repository, service, and HTTP/gRPC registrations from shared infrastructure dependencies in `store.Store`.
+Each module registers its own repository, service, and HTTP/gRPC endpoints from shared infrastructure dependencies in `store.Store`.
 Business objects are not written back into the store as container-managed dependencies.
 
 ## Exposed Endpoints
 
-The server exposes the same business capability over both transports:
+The server exposes the same business domain over both transports:
 
 - gRPC: `User`, `Order`, `Product` services
 - HTTP:

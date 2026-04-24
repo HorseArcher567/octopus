@@ -6,8 +6,8 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/store"
 )
 
-const MySQLPrimary = "primary"
+const PrimaryDBName = "primary"
 
 func PrimaryDB(ctx *assemble.Context) (*database.DB, error) {
-	return store.GetNamed[*database.DB](ctx.Store(), MySQLPrimary)
+	return store.GetNamed[*database.DB](ctx.Store(), PrimaryDBName)
 }

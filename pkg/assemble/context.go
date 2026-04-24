@@ -21,7 +21,7 @@ type apiServer interface {
 }
 
 type rpcServer interface {
-	Register(func(*grpc.Server)) error
+	Register(func(grpc.ServiceRegistrar)) error
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 }
@@ -93,6 +93,8 @@ func DecodeSetupConfig[T any](c *SetupContext, key string) (*T, error) {
 // Logger returns the app logger selected during builtin setup.
 func (c *SetupContext) Logger() *xlog.Logger { return c.inner.state.log }
 
+func (c *SetupContext) Store() store.Store { return c.inner.state.store }
+
 // NamedLogger returns a configured named logger from the shared store.
 func (c *SetupContext) NamedLogger(name string) (*xlog.Logger, error) {
 	selected := strings.TrimSpace(name)
@@ -118,7 +120,7 @@ func (c *Context) RegisterAPI(fn func(*api.Engine)) error {
 	return c.state.api.Register(fn)
 }
 
-func (c *Context) RegisterRPC(fn func(*grpc.Server)) error {
+func (c *Context) RegisterRPC(fn func(grpc.ServiceRegistrar)) error {
 	if c.state.rpc == nil {
 		return ErrRPCNotConfigured
 	}

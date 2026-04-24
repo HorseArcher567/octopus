@@ -43,7 +43,7 @@ func (r *repository) GetByID(ctx context.Context, orderID int64) (*Order, error)
 }
 
 func (r *repository) Create(ctx context.Context, order *Order) (int64, error) {
-	query := `INSERT INTO orders (user_id, product_name, amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())`
+	query := `INSERT INTO orders (user_id, product_name, amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
 	result, err := r.db.ExecContext(ctx, query, order.UserID, order.ProductName, order.Amount, order.Status)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create order: %w", err)

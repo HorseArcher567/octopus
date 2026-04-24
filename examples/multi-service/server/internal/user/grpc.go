@@ -6,7 +6,6 @@ import (
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,10 +18,6 @@ type GRPCHandler struct {
 
 func NewGRPCHandler(svc *Service, log *xlog.Logger) *GRPCHandler {
 	return &GRPCHandler{svc: svc, log: log}
-}
-
-func RegisterGRPC(s *grpc.Server, h *GRPCHandler) {
-	pb.RegisterUserServer(s, h)
 }
 
 func (h *GRPCHandler) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {

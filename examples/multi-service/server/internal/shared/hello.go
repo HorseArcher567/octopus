@@ -31,7 +31,7 @@ func SetupHello() assemble.SetupStep {
 	}
 }
 
-func AssembleHello(ctx *assemble.Context) error {
+func RegisterHello(ctx *assemble.Context) error {
 	message, err := store.GetNamed[string](ctx.Store(), "default")
 	if err != nil {
 		return err

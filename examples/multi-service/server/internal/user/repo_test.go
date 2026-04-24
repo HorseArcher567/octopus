@@ -38,7 +38,7 @@ func TestRepositoryGetByIDNotFound(t *testing.T) {
 func TestRepositoryCreateSuccess(t *testing.T) {
 	db, mock := newMockDB(t)
 	repo := NewRepository(db)
-	query := `INSERT INTO users (username, email, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`
+	query := `INSERT INTO users (username, email, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
 	mock.ExpectExec(regexp.QuoteMeta(query)).WithArgs("alice", "alice@example.com").WillReturnResult(sqlmock.NewResult(88, 1))
 	id, err := repo.Create(context.Background(), &User{Username: "alice", Email: "alice@example.com"})
 	if err != nil {

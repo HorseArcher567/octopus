@@ -16,7 +16,7 @@ func main() {
 
 	a, err := assemble.Load(
 		*configPath,
-		assemble.With(jobs.Assemble(*target, *apiURL)),
+		assemble.WithDomains(jobs.Register(*target, *apiURL)),
 	)
 	if err != nil {
 		panic(err)

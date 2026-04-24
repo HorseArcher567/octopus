@@ -13,7 +13,7 @@ func setupJobs(c *setupContext) error {
 			return err
 		}
 	}
-	log, err := selectComponentLogger(cfg.Logger, c.state.log, c.state.store)
+	log, err := selectLogger(cfg.Logger, c.state.log, c.state.store)
 	if err != nil {
 		return fmt.Errorf("assemble: jobScheduler.logger: %w", err)
 	}

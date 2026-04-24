@@ -23,7 +23,7 @@ func build(raw *config.Config, s *state, opts ...Option) (*app.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := applyActions(ctx, o.actions); err != nil {
+	if err := applyDomains(ctx, o.domains); err != nil {
 		return nil, err
 	}
 
@@ -79,13 +79,13 @@ func applySetupSteps(ctx *SetupContext, steps []SetupStep) error {
 	return nil
 }
 
-func applyActions(ctx *Context, actions []Action) error {
-	for i, action := range actions {
-		if action == nil {
+func applyDomains(ctx *Context, domains []Domain) error {
+	for i, domain := range domains {
+		if domain == nil {
 			continue
 		}
-		if err := action(ctx); err != nil {
-			return fmt.Errorf("assemble: action %d: %w", i, err)
+		if err := domain(ctx); err != nil {
+			return fmt.Errorf("assemble: domain %d: %w", i, err)
 		}
 	}
 	return nil

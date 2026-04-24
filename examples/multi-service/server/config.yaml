@@ -1,4 +1,5 @@
 logger:
+  # Default application logger used by the app, API server, and RPC server.
   - name: default
     level: debug
     format: text
@@ -7,28 +8,16 @@ logger:
     maxAge: 7
 
 app:
+  # App-level runtime policy.
   logger: default
+  shutdownTimeout: 15s
 
 hello:
+  # Example custom setup section consumed by shared.SetupHello().
   message: hello from custom setup step
 
-rpcServer:
-  name: multi-service-demo
-  host: 0.0.0.0
-  port: 9001
-  enableReflection: true
-  advertise:
-    address: 127.0.0.1
-    etcd: default
-
-apiServer:
-  name: multi-service-demo
-  host: 0.0.0.0
-  port: 8090
-  mode: release
-  enablePProf: false
-
 etcd:
+  # Service discovery client used by rpcServer.advertise.
   - name: default
     endpoints:
       - ${ETCD_ENDPOINT:localhost:2379}
@@ -37,23 +26,76 @@ etcd:
     password: ${ETCD_PASSWORD:123456}
 
 mysql:
-  - name: primary
+  # Optional MySQL example config kept here as a parallel reference.
+  # It does not use the default business DB resource name to avoid store conflicts with sqlite.primary.
+  - name: mysql-primary
     dsn: "${MYSQL_DSN:root:123456@tcp(localhost:3306)/octopus?charset=utf8mb4&parseTime=True&loc=Local}"
-    driverName: "mysql"
-    maxOpenConns: 100
-    maxIdleConns: 10
-    connMaxLifetime: 3600
-    connMaxIdleTime: 600
-    pingTimeout: 3s
+    pool:
+      maxOpenConns: 100
+      maxIdleConns: 10
+      connMaxLifetime: 1h
+      connMaxIdleTime: 10m
+      pingTimeout: 3s
+
+sqlite:
+  # Default database used by this demo application.
+  # For local development, a file-based SQLite database keeps the example self-contained.
+  - name: primary
+    dsn: "${SQLITE_DSN:file:/tmp/octopus.db}"
+    pool:
+      # SQLite is typically safest with a single shared connection in example apps.
+      maxOpenConns: 1
+      maxIdleConns: 1
+      connMaxLifetime: 0s
+      connMaxIdleTime: 0s
+      pingTimeout: 3s
 
 redis:
+  # Cache client used by example business domains.
   - name: cache
     addr: "${REDIS_ADDR:localhost:6379}"
+    username: "${REDIS_USERNAME:}"
     password: "${REDIS_PASSWORD:}"
     db: 0
     poolSize: 50
     minIdleConns: 10
+    maxRetries: 3
     dialTimeout: 3s
     readTimeout: 2s
     writeTimeout: 2s
     pingTimeout: 3s
+
+rpcServer:
+  # gRPC server configuration.
+  logger: default
+  name: multi-service-demo
+  host: 0.0.0.0
+  port: 9001
+  enableReflection: true
+  advertise:
+    address: 127.0.0.1
+    etcd: default
+  keepalive:
+    serverParameters:
+      # Zero means unlimited for connection age and idle lifetime.
+      maxConnectionIdle: 0s
+      maxConnectionAge: 0s
+      maxConnectionAgeGrace: 0s
+      # These values mirror the practical gRPC defaults but are written explicitly for demo clarity.
+      time: 2h
+      timeout: 20s
+    enforcementPolicy:
+      minTime: 5m
+      permitWithoutStream: false
+
+apiServer:
+  # HTTP API server configuration.
+  logger: default
+  name: multi-service-demo
+  host: 0.0.0.0
+  port: 8090
+  mode: release
+  readTimeout: 5s
+  writeTimeout: 10s
+  idleTimeout: 60s
+  enablePProf: false

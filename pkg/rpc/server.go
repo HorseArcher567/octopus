@@ -118,16 +118,10 @@ func (s *Server) StreamInterceptorCount() int {
 	return 2 + len(s.streamInterceptors)
 }
 
-// RegisterServices registers one or more gRPC services on the underlying grpc.Server.
-// It can be called multiple times to register different services.
-func (s *Server) RegisterServices(registerFunc func(*grpc.Server)) {
-	registerFunc(s.grpcServer)
-}
-
-// Register applies service registration to the underlying grpc.Server.
-func (s *Server) Register(register func(*grpc.Server)) error {
+// Register applies one or more gRPC service registrations to the underlying grpc.Server.
+func (s *Server) Register(register func(grpc.ServiceRegistrar)) error {
 	if register != nil {
-		s.RegisterServices(register)
+		register(s.grpcServer)
 	}
 	return nil
 }

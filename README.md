@@ -3,12 +3,16 @@
 Octopus is a lightweight Go service framework built around a small set of clear primitives:
 
 - minimal application runtime lifecycle
-- simple application assembly facade
+- simple application construction facade
 - built-in API / gRPC / jobs integration
 - shared dependency store
 - explicit configuration loading
 
 The framework aims to stay small, direct, and easy to integrate.
+
+The primary extension surface is explicit:
+- `assemble.WithSetup(...)` for custom setup work
+- `assemble.WithDomains(...)` for business domain registration
 
 ---
 
@@ -23,9 +27,9 @@ That translates into a few practical rules:
 
 - `pkg/app` stays a minimal runtime kernel
 - `pkg/assemble` is the only facade application code normally needs
-- business code contributes assembly through small actions
+- business code contributes domain registration through small domains
 - shared dependencies live in `pkg/store`
-- setup and assembly details should not leak into application entry code
+- setup and domain registration details should not leak into application entry code
 
 ---
 
@@ -72,9 +76,9 @@ import (
 func main() {
     a, err := assemble.Load(
         "config.yaml",
-        assemble.With(
-            user.Assemble,
-            order.Assemble,
+        assemble.WithDomains(
+            user.Register,
+            order.Register,
         ),
     )
     if err != nil {
@@ -89,7 +93,7 @@ func main() {
 
 ### Run the example service
 
-The multi-service server example is organized by business capability (`user`, `order`, `product`), assembled through business actions, and also shows a minimal custom setup step via `WithSetupSteps(...)`.
+The multi-service server example is organized by business capability (`user`, `order`, `product`), assembled through business domains, and also shows a minimal custom setup step via `WithSetup(...)`.
 
 ```bash
 cd examples/multi-service/server
@@ -134,15 +138,15 @@ Typical examples include:
 - watcher
 - worker loop
 
-### Application assembly
+### Domain registration
 
 ```go
-type Action func(*assemble.Context) error
+type Domain func(*assemble.Context) error
 ```
 
-Business code contributes to application construction through `Action`.
+Business code contributes to application creation through `Domain`.
 
-An action may:
+A domain may:
 
 - register API routes
 - register gRPC handlers
@@ -181,7 +185,7 @@ The API server supports:
 - default middleware stack
 - custom middleware via `api.WithMiddleware(...)`
 - disabling built-in middleware via `api.WithoutDefaultMiddleware()`
-- route registration through assembly
+- route registration through domain registration
 - `Run(ctx)` / `Stop(ctx)`
 
 ### gRPC
@@ -189,7 +193,7 @@ The API server supports:
 The gRPC helpers support:
 
 - server creation
-- service registration through assembly
+- service registration through domain registration
 - custom unary interceptors via `rpc.WithUnaryInterceptors(...)`
 - custom stream interceptors via `rpc.WithStreamInterceptors(...)`
 - additional server options via `rpc.WithServerOptions(...)`
@@ -197,7 +201,7 @@ The gRPC helpers support:
 
 ### Jobs
 
-Jobs are registered during assembly and run as an application-managed runtime service.
+Jobs are registered during domain registration and run as an application-managed runtime service.
 
 ---
 

@@ -85,7 +85,7 @@ func selectAppLogger(c *setupContext) error {
 	return nil
 }
 
-func selectComponentLogger(name string, fallback *xlog.Logger, st store.Store) (*xlog.Logger, error) {
+func selectLogger(name string, fallback *xlog.Logger, st store.Store) (*xlog.Logger, error) {
 	selected := strings.TrimSpace(name)
 	if selected == "" {
 		if fallback == nil {

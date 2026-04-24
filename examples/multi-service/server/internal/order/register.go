@@ -1,13 +1,14 @@
-package user
+package order
 
 import (
+	"github.com/HorseArcher567/octopus/examples/multi-service/proto/pb"
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/shared"
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/assemble"
 	"google.golang.org/grpc"
 )
 
-func Assemble(ctx *assemble.Context) error {
+func Register(ctx *assemble.Context) error {
 	db, err := shared.PrimaryDB(ctx)
 	if err != nil {
 		return err
@@ -17,11 +18,12 @@ func Assemble(ctx *assemble.Context) error {
 	svc := NewService(repo)
 	log := ctx.Logger()
 
-	if err := ctx.RegisterRPC(func(s *grpc.Server) {
-		RegisterGRPC(s, NewGRPCHandler(svc, log))
+	if err := ctx.RegisterRPC(func(r grpc.ServiceRegistrar) {
+		pb.RegisterOrderServer(r, NewGRPCHandler(svc, log))
 	}); err != nil {
 		return err
 	}
+
 	return ctx.RegisterAPI(func(engine *api.Engine) {
 		RegisterHTTP(engine, NewHTTPHandler(svc, log))
 	})

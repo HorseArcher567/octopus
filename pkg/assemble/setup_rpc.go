@@ -14,14 +14,17 @@ func setupRPC(c *setupContext) error {
 	if _, ok := c.get("rpcServer"); !ok {
 		return nil
 	}
+
 	var cfg rpc.ServerConfig
 	if err := c.decodeStruct("rpcServer", &cfg); err != nil {
 		return err
 	}
-	log, err := selectComponentLogger(cfg.Logger, c.state.log, c.state.store)
+
+	log, err := selectLogger(cfg.Logger, c.state.log, c.state.store)
 	if err != nil {
 		return fmt.Errorf("assemble: rpcServer.logger: %w", err)
 	}
+
 	opts := []rpc.Option{}
 	if cfg.Advertise != nil {
 		if strings.TrimSpace(cfg.Advertise.Etcd) == "" {
@@ -33,10 +36,12 @@ func setupRPC(c *setupContext) error {
 		}
 		opts = append(opts, rpc.WithRegistrar(discovery.NewEtcdRegistrar(log, client)))
 	}
+
 	server, err := rpc.NewServer(log, &cfg, opts...)
 	if err != nil {
 		return fmt.Errorf("assemble: rpc server: %w", err)
 	}
 	c.state.rpc = server
+
 	return nil
 }

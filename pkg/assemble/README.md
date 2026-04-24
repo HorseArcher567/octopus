@@ -2,10 +2,10 @@
 
 `pkg/assemble` is the application construction facade of Octopus.
 
-It is the primary package application developers should use to build an `*app.App`.
+It is the primary package application developers should use to create an `*app.App`.
 
 Its job is to hide internal construction details and expose one compact integration surface.
-The public entrypoints live in `assemble.go`, while internal setup and final app construction stay in `setup.go` and `build.go`.
+The public entrypoints live in `assemble.go`, while internal setup and final app creation stay in `setup.go` and `build.go`.
 
 ---
 
@@ -19,9 +19,9 @@ The public entrypoints live in `assemble.go`, while internal setup and final app
 - creating named infrastructure instances and placing them into the store
 - initializing logger infrastructure from `logger` config and selecting component loggers (`app`, `apiServer`, `rpcServer`, `jobScheduler`) from named loggers
 - initializing framework runtime objects through an internal ordered setup pipeline
-- exposing a setup-facing extension context and a business-facing assembly context
+- exposing a setup-facing extension context and a domain-facing registration context
 - collecting startup hooks, shutdown hooks, and runtime services
-- constructing and returning `*app.App`
+- creating and returning `*app.App`
 
 It is the outer application-construction layer.
 
@@ -30,7 +30,7 @@ It is the outer application-construction layer.
 ## Public API
 
 ```go
-type Action func(*Context) error
+type Domain func(*Context) error
 
 type SetupStep struct {
     Name string
@@ -39,13 +39,17 @@ type SetupStep struct {
 
 type Option func(*options)
 
-func With(actions ...Action) Option
-func WithSetupSteps(steps ...SetupStep) Option
+func WithDomains(domains ...Domain) Option
+func WithSetup(steps ...SetupStep) Option
 func Load(path string, opts ...Option) (*app.App, error)
 func New(cfg *config.Config, opts ...Option) (*app.App, error)
 ```
 
 For most applications, `Load(...)` is the primary entrypoint.
+
+Recommended public option names:
+- `WithSetup(...)`: register custom setup work
+- `WithDomains(...)`: register business domains
 
 ---
 
@@ -125,8 +129,8 @@ Builtin components then either:
 ## Custom setup extension model
 
 In addition to builtin setup, applications may contribute custom setup steps.
-A custom setup step runs after builtin framework setup and before business `Action`s.
-It is the intended extension point for preparing shared infrastructure that business assembly will later consume from the store.
+A custom setup step runs after builtin framework setup and before business domains.
+It is the intended extension point for preparing shared infrastructure that domain registration will later consume from the store.
 Builtin setup steps and custom setup steps both follow the same step-driven model: each step reads the config section it needs, performs setup, and writes setup results into shared runtime state or the store.
 
 Typical uses include:
@@ -134,12 +138,12 @@ Typical uses include:
 - initializing sqlite or other custom database clients
 - creating third-party SDK clients
 - setting up feature-flag, metrics, or messaging clients
-- registering shared infrastructure resources into the store for later use by actions
+- registering shared infrastructure resources into the store for later use by domains
 
 The execution order is:
 
 ```text
-builtin setup -> custom setup steps -> business actions -> app assembly
+builtin setup -> custom setup steps -> business domains -> app assembly
 ```
 
 `SetupContext` intentionally exposes a narrow capability surface:
@@ -156,25 +160,25 @@ Semantics:
 - `DecodeSetupConfig(...)`: decodes a config subtree for a custom setup step
 - `Logger()`: returns the app logger for ordinary setup logging
 - `NamedLogger(name)`: selects a specific configured logger by name
-- `Provide(...)`: registers a shared infrastructure resource into the store for later setup steps or actions
+- `Provide(...)`: registers a shared infrastructure resource into the store for later setup steps or domains
 
-Custom setup steps should generally focus on infrastructure preparation, not business assembly.
-Business module wiring, API/RPC registration, jobs, hooks, and custom runtime services should remain in `Action`.
-In practice, setup steps are the recommended place to write shared resources into the store, while actions are the recommended place to read those resources and assemble business modules.
+Custom setup steps should generally focus on infrastructure preparation, not domain registration.
+Business domain wiring, API/RPC registration, jobs, hooks, and custom runtime services should remain in `Domain`.
+In practice, setup steps are the recommended place to write shared resources into the store, while domains are the recommended place to read those resources and register business capabilities.
 
-## Business integration model
+## Domain registration model
 
-Business code contributes assembly through `Action`:
+Business code contributes domain registration through `Domain`:
 
 ```go
-func AssembleUser(ctx *assemble.Context) error {
+func RegisterUser(ctx *assemble.Context) error {
     return ctx.RegisterAPI(func(engine *api.Engine) {
         // register user routes
     })
 }
 ```
 
-An action may:
+A domain may:
 
 - register API routes
 - register gRPC handlers
@@ -203,8 +207,8 @@ func (c *Context) AddService(s app.Service)
 ```
 
 `Context` is intentionally small.
-It is the only assembly surface business code should need.
-Internally, it is the business-facing capability view over assemble's private setup state plus collectors for hooks and custom services.
+It is the only registration surface business code should need.
+Internally, it is the domain-facing capability view over assemble's private setup state plus collectors for hooks and custom services.
 
 `Store()` is primarily intended for reading shared dependencies assembled by builtin setup or custom setup steps. Writing new shared resources directly through `Store()` should be done sparingly and with clear project-level conventions; for setup-time registration, prefer `SetupContext.Provide(...)`.
 
@@ -277,10 +281,10 @@ func sqliteStep() assemble.SetupStep {
 func main() {
     a, err := assemble.Load(
         "config.yaml",
-        assemble.WithSetupSteps(sqliteStep()),
-        assemble.With(
-            user.Assemble,
-            order.Assemble,
+        assemble.WithSetup(sqliteStep()),
+        assemble.WithDomains(
+            user.Register,
+            order.Register,
         ),
     )
     if err != nil {
@@ -293,7 +297,7 @@ func main() {
 }
 ```
 
-In later business actions, the provided resource can be read from the store:
+In later business domains, the provided resource can be read from the store:
 
 ```go
 db, err := store.GetNamed[*sql.DB](ctx.Store(), "default")
@@ -303,13 +307,13 @@ db, err := store.GetNamed[*sql.DB](ctx.Store(), "default")
 
 ## Internal setup model
 
-Internally, `pkg/assemble` runs an ordered builtin setup pipeline directly against raw config, then applies any custom setup steps, and finally applies business `Action`s to construct the app.
-Builtin and custom setup both participate in the same overall step-driven setup model, but builtin setup remains framework-controlled while custom setup is user-contributed through `WithSetupSteps(...)`.
+Internally, `pkg/assemble` runs an ordered builtin setup pipeline directly against raw config, then applies any custom setup steps, and finally applies business domains to complete domain registration and create the app.
+Builtin and custom setup both participate in the same overall step-driven setup model, but builtin setup remains framework-controlled while custom setup is user-contributed through `WithSetup(...)`.
 
 Conceptually the flow is:
 
 ```text
-raw config -> builtin setup steps -> custom setup steps -> action context -> app assembly
+raw config -> builtin setup steps -> custom setup steps -> domain context -> app assembly
 ```
 
 The setup pipeline is intentionally internal and ordered. It exists to keep the setup mainline short while still allowing framework setup capabilities to grow as a small, explicit list.
@@ -328,7 +332,7 @@ Application developers should not need to know or manage:
 The intended experience is simple:
 
 ```text
-build my app from config and business actions
+create my app from config, setup, and domains
 ```
 
 That is the core purpose of this package.

@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"flag"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/order"
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/product"
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/shared"
 	"github.com/HorseArcher567/octopus/examples/multi-service/server/internal/user"
 	"github.com/HorseArcher567/octopus/pkg/assemble"
-	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
@@ -18,18 +20,21 @@ func main() {
 
 	a, err := assemble.Load(
 		*configFile,
-		assemble.WithSetupSteps(shared.SetupHello()),
-		assemble.With(
-			shared.AssembleHello,
-			user.Assemble,
-			order.Assemble,
-			product.Assemble,
+		assemble.WithSetup(shared.SetupHello(), shared.SetupSchema()),
+		assemble.WithDomains(
+			shared.RegisterHello,
+			user.Register,
+			order.Register,
+			product.Register,
 		),
 	)
 	if err != nil {
 		panic(err)
 	}
-	if err := a.Run(context.Background()); err != nil {
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := a.Run(ctx); err != nil {
 		panic(err)
 	}
 }
