@@ -12,9 +12,10 @@ import (
 
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/hook"
+	"github.com/HorseArcher567/octopus/pkg/job"
 	"github.com/HorseArcher567/octopus/pkg/rpc"
 	"github.com/HorseArcher567/octopus/pkg/store"
-	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"google.golang.org/grpc"
 	grpcresolver "google.golang.org/grpc/resolver"
 )
@@ -61,7 +62,7 @@ func TestNew_NilConfig(t *testing.T) {
 
 func TestNew_DomainError(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, WithDomains(func(ctx *Context) error {
+	_, err := New(cfg, WithDomains(func(ctx *DomainContext) error {
 		return errors.New("boom")
 	}))
 	if err == nil || err.Error() != "assemble: domain 0: boom" {
@@ -83,7 +84,7 @@ func TestNew_SetupStepProvidesResourceForDomain(t *testing.T) {
 					Name string `yaml:"name"`
 					DSN  string `yaml:"dsn"`
 				}
-				c, err := DecodeSetupConfig[sqliteConfig](ctx, "sqlite")
+				c, err := DecodeConfig[sqliteConfig](ctx, "sqlite")
 				if err != nil {
 					return err
 				}
@@ -93,8 +94,8 @@ func TestNew_SetupStepProvidesResourceForDomain(t *testing.T) {
 				return ctx.Provide("default", c.DSN)
 			},
 		}),
-		WithDomains(func(ctx *Context) error {
-			v, err := store.GetNamed[string](ctx.Store(), "default")
+		WithDomains(func(ctx *DomainContext) error {
+			v, err := store.GetNamed[string](ctx, "default")
 			if err != nil {
 				return err
 			}
@@ -147,12 +148,12 @@ func TestNew_DomainsCanRegisterHooksAndServices(t *testing.T) {
 		events = append(events, v)
 	}
 
-	a, err := New(cfg, WithDomains(func(ctx *Context) error {
-		ctx.OnStartup(func(context.Context) error {
+	a, err := New(cfg, WithDomains(func(ctx *DomainContext) error {
+		ctx.OnStartup(func(*hook.Context) error {
 			record("startup")
 			return nil
 		})
-		ctx.OnShutdown(func(context.Context) error {
+		ctx.OnShutdown(func(*hook.Context) error {
 			record("shutdown")
 			return nil
 		})
@@ -202,7 +203,7 @@ func TestLoad(t *testing.T) {
 
 func TestContext_RegisterWithoutConfiguredRuntime(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, WithDomains(func(ctx *Context) error {
+	_, err := New(cfg, WithDomains(func(ctx *DomainContext) error {
 		if err := ctx.RegisterAPI(func(*api.Engine) {}); err == nil || !errors.Is(err, ErrAPINotConfigured) {
 			return errors.New("expected api not configured")
 		}
@@ -218,8 +219,8 @@ func TestContext_RegisterWithoutConfiguredRuntime(t *testing.T) {
 
 func TestContext_RegisterJob_DefaultSchedulerAvailable(t *testing.T) {
 	cfg := minimalConfig()
-	_, err := New(cfg, WithDomains(func(ctx *Context) error {
-		return ctx.RegisterJob("job", func(context.Context, *xlog.Logger) error { return nil })
+	_, err := New(cfg, WithDomains(func(ctx *DomainContext) error {
+		return ctx.RegisterJob("job", func(*job.Context) error { return nil })
 	}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

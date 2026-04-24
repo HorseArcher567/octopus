@@ -3,10 +3,11 @@ package assemble
 import (
 	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/hook"
 )
 
 // Domain registers one business domain into the application construction process.
-type Domain func(*Context) error
+type Domain func(*DomainContext) error
 
 // SetupStep contributes custom setup work that runs after builtin setup and
 // before business domains. Setup steps are intended for preparing shared
@@ -17,8 +18,10 @@ type SetupStep struct {
 }
 
 type options struct {
-	domains    []Domain
-	setupSteps []SetupStep
+	domains       []Domain
+	setupSteps    []SetupStep
+	startupHooks  []hook.Func
+	shutdownHooks []hook.Func
 }
 
 // Option customizes facade assembly behavior.
@@ -35,6 +38,20 @@ func WithDomains(domains ...Domain) Option {
 func WithSetup(steps ...SetupStep) Option {
 	return func(o *options) {
 		o.setupSteps = append(o.setupSteps, steps...)
+	}
+}
+
+// WithStartupHooks registers one or more app-level startup hooks.
+func WithStartupHooks(hooks ...hook.Func) Option {
+	return func(o *options) {
+		o.startupHooks = append(o.startupHooks, hooks...)
+	}
+}
+
+// WithShutdownHooks registers one or more app-level shutdown hooks.
+func WithShutdownHooks(hooks ...hook.Func) Option {
+	return func(o *options) {
+		o.shutdownHooks = append(o.shutdownHooks, hooks...)
 	}
 }
 

@@ -5,11 +5,11 @@ import (
 	"reflect"
 )
 
-func Get[T any](s Store) (T, error) {
+func Get[T any](s Reader) (T, error) {
 	return GetNamed[T](s, "")
 }
 
-func GetNamed[T any](s Store, name string) (T, error) {
+func GetNamed[T any](s Reader, name string) (T, error) {
 	var zero T
 	typ := reflect.TypeFor[T]()
 	v, err := s.GetNamed(name, typ)
@@ -23,7 +23,7 @@ func GetNamed[T any](s Store, name string) (T, error) {
 	return typed, nil
 }
 
-func MustGet[T any](s Store) T {
+func MustGet[T any](s Reader) T {
 	v, err := Get[T](s)
 	if err != nil {
 		panic(err)
@@ -31,7 +31,7 @@ func MustGet[T any](s Store) T {
 	return v
 }
 
-func MustGetNamed[T any](s Store, name string) T {
+func MustGetNamed[T any](s Reader, name string) T {
 	v, err := GetNamed[T](s, name)
 	if err != nil {
 		panic(err)

@@ -11,14 +11,14 @@ The scheduler runs all registered jobs concurrently, and the app exits naturally
 ```bash
 go run . -config config.yaml \
   -target etcd:///multi-service-demo \
-  -api http://127.0.0.1:8090/hello
+  -api http://127.0.0.1:8090
 ```
 
 ## Flags
 
 - `-config`: client config path
 - `-target`: gRPC target (`etcd:///service-name`, `direct:///host:port[,host:port]`, or `host:port`)
-- `-api`: HTTP API base URL or `/hello` endpoint
+- `-api`: HTTP API base URL
 
 ## Structure
 
@@ -31,7 +31,6 @@ go run . -config config.yaml \
 - `rpc.user_flow`: create and then get a user over gRPC
 - `rpc.order_flow`: create a user and then create an order over gRPC
 - `rpc.product_flow`: list products over gRPC
-- `http.hello`: call HTTP `/hello`
 - `http.user_flow`: create and then get a user over HTTP
 - `http.order_flow`: create a user and then create an order over HTTP
 - `http.product_flow`: list products over HTTP

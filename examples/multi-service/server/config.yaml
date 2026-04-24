@@ -12,10 +12,6 @@ app:
   logger: default
   shutdownTimeout: 15s
 
-hello:
-  # Example custom setup section consumed by shared.SetupHello().
-  message: hello from custom setup step
-
 etcd:
   # Service discovery client used by rpcServer.advertise.
   - name: default

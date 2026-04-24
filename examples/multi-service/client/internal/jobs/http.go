@@ -15,21 +15,18 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
 
-func registerHTTPJobs(ctx *assemble.Context, apiURL string) error {
+func registerHTTPJobs(ctx *assemble.DomainContext, apiURL string) error {
 	baseLog := ctx.Logger()
 
 	jobs := map[string]job.Func{
-		"http.hello": func(runCtx context.Context, log *xlog.Logger) error {
-			return runHTTPHello(runCtx, preferJobLog(log, baseLog), apiURL)
+		"http.user_flow": func(runCtx *job.Context) error {
+			return runHTTPUserFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), apiURL)
 		},
-		"http.user_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runHTTPUserFlow(runCtx, preferJobLog(log, baseLog), apiURL)
+		"http.order_flow": func(runCtx *job.Context) error {
+			return runHTTPOrderFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), apiURL)
 		},
-		"http.order_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runHTTPOrderFlow(runCtx, preferJobLog(log, baseLog), apiURL)
-		},
-		"http.product_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runHTTPProductFlow(runCtx, preferJobLog(log, baseLog), apiURL)
+		"http.product_flow": func(runCtx *job.Context) error {
+			return runHTTPProductFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), apiURL)
 		},
 	}
 
@@ -41,16 +38,8 @@ func registerHTTPJobs(ctx *assemble.Context, apiURL string) error {
 	return nil
 }
 
-func runHTTPHello(ctx context.Context, log *xlog.Logger, apiURL string) error {
-	if err := checkAPI(ctx, apiURL); err != nil {
-		return fmt.Errorf("API check: %w", err)
-	}
-	log.Info("http hello ok", "api_url", apiURL)
-	return nil
-}
-
 func runHTTPUserFlow(ctx context.Context, log *xlog.Logger, apiURL string) error {
-	baseURL, err := trimHelloURL(apiURL)
+	baseURL, err := trimAPIBaseURL(apiURL)
 	if err != nil {
 		return fmt.Errorf("invalid api url: %w", err)
 	}
@@ -72,7 +61,7 @@ func runHTTPUserFlow(ctx context.Context, log *xlog.Logger, apiURL string) error
 }
 
 func runHTTPOrderFlow(ctx context.Context, log *xlog.Logger, apiURL string) error {
-	baseURL, err := trimHelloURL(apiURL)
+	baseURL, err := trimAPIBaseURL(apiURL)
 	if err != nil {
 		return fmt.Errorf("invalid api url: %w", err)
 	}
@@ -98,7 +87,7 @@ func runHTTPOrderFlow(ctx context.Context, log *xlog.Logger, apiURL string) erro
 }
 
 func runHTTPProductFlow(ctx context.Context, log *xlog.Logger, apiURL string) error {
-	baseURL, err := trimHelloURL(apiURL)
+	baseURL, err := trimAPIBaseURL(apiURL)
 	if err != nil {
 		return fmt.Errorf("invalid api url: %w", err)
 	}
@@ -109,24 +98,6 @@ func runHTTPProductFlow(ctx context.Context, log *xlog.Logger, apiURL string) er
 		return fmt.Errorf("http ListProducts: %w", err)
 	}
 	log.Info("http product flow ok")
-	return nil
-}
-
-func checkAPI(ctx context.Context, url string) error {
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
 	return nil
 }
 
@@ -166,13 +137,10 @@ func doJSON(ctx context.Context, method, url string, body any, target any) error
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
-func trimHelloURL(apiURL string) (string, error) {
+func trimAPIBaseURL(apiURL string) (string, error) {
 	trimmed := strings.TrimRight(apiURL, "/")
 	if trimmed == "" {
 		return "", fmt.Errorf("empty api url")
-	}
-	if strings.HasSuffix(trimmed, "/hello") {
-		return strings.TrimSuffix(trimmed, "/hello"), nil
 	}
 	return trimmed, nil
 }

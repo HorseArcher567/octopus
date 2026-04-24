@@ -20,9 +20,8 @@ func main() {
 
 	a, err := assemble.Load(
 		*configFile,
-		assemble.WithSetup(shared.SetupHello(), shared.SetupSchema()),
+		assemble.WithStartupHooks(shared.InitSchema),
 		assemble.WithDomains(
-			shared.RegisterHello,
 			user.Register,
 			order.Register,
 			product.Register,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/HorseArcher567/octopus/pkg/hook"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -53,9 +54,10 @@ func (a *App) Run(ctx context.Context) (retErr error) {
 }
 
 func (a *App) runStartupHooks(ctx context.Context) error {
+	hookCtx := hook.NewContext(ctx, a.log, a.store)
 	for i, h := range a.startupHooks {
 		a.log.Info("running startup hook", "hook", i)
-		if err := h(ctx); err != nil {
+		if err := h(hookCtx); err != nil {
 			a.log.Error("startup hook failed", "hook", i, "error", err)
 			return fmt.Errorf("startup hook %d: %w", i, err)
 		}
@@ -64,10 +66,11 @@ func (a *App) runStartupHooks(ctx context.Context) error {
 }
 
 func (a *App) runShutdownHooks(ctx context.Context) error {
+	hookCtx := hook.NewContext(ctx, a.log, a.store)
 	var errs []error
 	for i := len(a.shutdownHooks) - 1; i >= 0; i-- {
 		a.log.Info("running shutdown hook", "hook", i)
-		if err := a.shutdownHooks[i](ctx); err != nil {
+		if err := a.shutdownHooks[i](hookCtx); err != nil {
 			a.log.Error("shutdown hook failed", "hook", i, "error", err)
 			errs = append(errs, fmt.Errorf("shutdown hook %d: %w", i, err))
 		}

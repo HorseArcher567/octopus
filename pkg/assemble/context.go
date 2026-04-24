@@ -8,6 +8,7 @@ import (
 	"github.com/HorseArcher567/octopus/pkg/api"
 	"github.com/HorseArcher567/octopus/pkg/app"
 	"github.com/HorseArcher567/octopus/pkg/config"
+	"github.com/HorseArcher567/octopus/pkg/hook"
 	"github.com/HorseArcher567/octopus/pkg/job"
 	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
@@ -35,14 +36,16 @@ type jobScheduler interface {
 // SetupContext exposes the narrow setup-time capability surface available to
 // custom setup steps.
 type SetupContext struct {
+	store.Reader
 	inner *setupContext
 }
 
-type Context struct {
+type DomainContext struct {
+	store.Reader
 	state *state
 
-	startupHooks  []app.StartupHook
-	shutdownHooks []app.ShutdownHook
+	startupHooks  []hook.Func
+	shutdownHooks []hook.Func
 	services      []app.Service
 }
 
@@ -59,10 +62,10 @@ func newSetupContext(cfg *config.Config, s *state) (*SetupContext, error) {
 	if s.log == nil {
 		return nil, fmt.Errorf("assemble: state.log cannot be nil")
 	}
-	return &SetupContext{inner: &setupContext{cfg: cfg, state: s}}, nil
+	return &SetupContext{Reader: s.store, inner: &setupContext{cfg: cfg, state: s}}, nil
 }
 
-func newContext(s *state) (*Context, error) {
+func newContext(s *state) (*DomainContext, error) {
 	if s == nil {
 		return nil, fmt.Errorf("assemble: state cannot be nil")
 	}
@@ -75,11 +78,11 @@ func newContext(s *state) (*Context, error) {
 	if s.job == nil {
 		return nil, fmt.Errorf("assemble: state.job cannot be nil")
 	}
-	return &Context{state: s}, nil
+	return &DomainContext{Reader: s.store, state: s}, nil
 }
 
-// DecodeSetupConfig decodes a config subtree for a custom setup step.
-func DecodeSetupConfig[T any](c *SetupContext, key string) (*T, error) {
+// DecodeConfig decodes a config subtree for a custom setup step.
+func DecodeConfig[T any](c *SetupContext, key string) (*T, error) {
 	var v T
 	if c == nil || c.inner == nil {
 		return nil, fmt.Errorf("setup context cannot be nil")
@@ -92,8 +95,6 @@ func DecodeSetupConfig[T any](c *SetupContext, key string) (*T, error) {
 
 // Logger returns the app logger selected during builtin setup.
 func (c *SetupContext) Logger() *xlog.Logger { return c.inner.state.log }
-
-func (c *SetupContext) Store() store.Store { return c.inner.state.store }
 
 // NamedLogger returns a configured named logger from the shared store.
 func (c *SetupContext) NamedLogger(name string) (*xlog.Logger, error) {
@@ -109,41 +110,39 @@ func (c *SetupContext) Provide(name string, value any, opts ...store.SetOption) 
 	return c.inner.provide(name, value, opts...)
 }
 
-func (c *Context) Logger() *xlog.Logger { return c.state.log }
+func (c *DomainContext) Logger() *xlog.Logger { return c.state.log }
 
-func (c *Context) Store() store.Store { return c.state.store }
-
-func (c *Context) RegisterAPI(fn func(*api.Engine)) error {
+func (c *DomainContext) RegisterAPI(fn func(*api.Engine)) error {
 	if c.state.api == nil {
 		return ErrAPINotConfigured
 	}
 	return c.state.api.Register(fn)
 }
 
-func (c *Context) RegisterRPC(fn func(grpc.ServiceRegistrar)) error {
+func (c *DomainContext) RegisterRPC(fn func(grpc.ServiceRegistrar)) error {
 	if c.state.rpc == nil {
 		return ErrRPCNotConfigured
 	}
 	return c.state.rpc.Register(fn)
 }
 
-func (c *Context) RegisterJob(name string, fn job.Func) error {
+func (c *DomainContext) RegisterJob(name string, fn job.Func) error {
 	return c.state.job.Add(name, fn)
 }
 
-func (c *Context) OnStartup(h app.StartupHook) {
+func (c *DomainContext) OnStartup(h hook.Func) {
 	if h != nil {
 		c.startupHooks = append(c.startupHooks, h)
 	}
 }
 
-func (c *Context) OnShutdown(h app.ShutdownHook) {
+func (c *DomainContext) OnShutdown(h hook.Func) {
 	if h != nil {
 		c.shutdownHooks = append(c.shutdownHooks, h)
 	}
 }
 
-func (c *Context) AddService(s app.Service) {
+func (c *DomainContext) AddService(s app.Service) {
 	if s != nil {
 		c.services = append(c.services, s)
 	}

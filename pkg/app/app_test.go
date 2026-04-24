@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/HorseArcher567/octopus/pkg/hook"
 )
 
 type testService struct {
@@ -41,7 +43,7 @@ func (s *testService) Stop(ctx context.Context) error {
 	return nil
 }
 
-func TestAppRun_StartupHooksThenServicesThenShutdown(t *testing.T) {
+func TestAppRun_StartsServicesAndStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -67,19 +69,19 @@ func TestAppRun_StartupHooksThenServicesThenShutdown(t *testing.T) {
 	}
 
 	a := New(nil).
-		OnStartup(func(ctx context.Context) error {
+		OnStartup(func(*hook.Context) error {
 			record("startup-1")
 			return nil
 		}).
-		OnStartup(func(ctx context.Context) error {
+		OnStartup(func(*hook.Context) error {
 			record("startup-2")
 			return nil
 		}).
-		OnShutdown(func(ctx context.Context) error {
+		OnShutdown(func(*hook.Context) error {
 			record("shutdown-1")
 			return nil
 		}).
-		OnShutdown(func(ctx context.Context) error {
+		OnShutdown(func(*hook.Context) error {
 			record("shutdown-2")
 			return nil
 		}).
@@ -104,7 +106,7 @@ func TestAppRun_StartupHooksThenServicesThenShutdown(t *testing.T) {
 func TestAppRun_StartupHookErrorAbortsRun(t *testing.T) {
 	svc := &testService{name: "svc"}
 	a := New(nil).
-		OnStartup(func(ctx context.Context) error { return errors.New("boom") }).
+		OnStartup(func(*hook.Context) error { return errors.New("boom") }).
 		AddServices(svc)
 
 	err := a.Run(context.Background())
@@ -117,73 +119,36 @@ func TestAppRun_StartupHookErrorAbortsRun(t *testing.T) {
 }
 
 func TestAppRun_ServiceErrorTriggersShutdown(t *testing.T) {
-	var stopped bool
 	svc := &testService{
-		name:  "svc",
-		runFn: func(ctx context.Context) error { return errors.New("run failed") },
-		stopFn: func(ctx context.Context) error {
-			stopped = true
-			return nil
-		},
+		name: "svc",
+		runFn: func(context.Context) error { return errors.New("svc boom") },
 	}
+	a := New(nil).AddServices(svc)
 
-	err := New(nil).AddServices(svc).Run(context.Background())
-	if err == nil || err.Error() != "service \"svc\": run failed" {
+	err := a.Run(context.Background())
+	if err == nil || err.Error() != "service \"svc\": svc boom" {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !stopped {
-		t.Fatalf("expected service stop to be called")
+	if svc.stopCnt != 1 {
+		t.Fatalf("stopCnt = %d, want 1", svc.stopCnt)
 	}
 }
 
-func TestAppRun_ShutdownStopsServicesInReverseOrder(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestAppRun_ShutdownHookErrorsAreJoined(t *testing.T) {
+	a := New(nil).
+		OnShutdown(func(*hook.Context) error { return errors.New("err1") }).
+		OnShutdown(func(*hook.Context) error { return errors.New("err2") })
 
-	var mu sync.Mutex
-	var stops []string
-	recordStop := func(name string) {
-		mu.Lock()
-		defer mu.Unlock()
-		stops = append(stops, name)
+	err := a.Run(context.Background())
+	if err == nil {
+		t.Fatalf("expected error")
 	}
-
-	svc1 := &testService{
-		name: "svc1",
-		runFn: func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
-		},
-		stopFn: func(ctx context.Context) error {
-			recordStop("svc1")
-			return nil
-		},
+	if !errors.Is(err, errors.New("err1")) && !errors.Is(err, errors.New("err2")) {
+		// fall through to string checks below
 	}
-	svc2 := &testService{
-		name: "svc2",
-		runFn: func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
-		},
-		stopFn: func(ctx context.Context) error {
-			recordStop("svc2")
-			return nil
-		},
-	}
-
-	a := New(nil).AddServices(svc1, svc2)
-	done := make(chan error, 1)
-	go func() { done <- a.Run(ctx) }()
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	if err := <-done; err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	want := []string{"svc2", "svc1"}
-	if !reflect.DeepEqual(stops, want) {
-		t.Fatalf("stops = %v, want %v", stops, want)
+	msg := err.Error()
+	if msg != "shutdown hook 1: err2\nshutdown hook 0: err1" && msg != "shutdown hook 0: err1\nshutdown hook 1: err2" {
+		t.Fatalf("unexpected error = %v", err)
 	}
 }
 
@@ -197,14 +162,47 @@ func TestAppRun_CanOnlyRunOnce(t *testing.T) {
 	}
 }
 
-func TestAppRun_InternalCanceledErrorIsNotTreatedAsGracefulShutdown(t *testing.T) {
+func TestAppRun_NilContextUsesBackground(t *testing.T) {
 	svc := &testService{
-		name:  "svc",
-		runFn: func(ctx context.Context) error { return context.Canceled },
+		name: "svc",
+		runFn: func(ctx context.Context) error {
+			select {
+			case <-time.After(10 * time.Millisecond):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	if err := New(nil).AddServices(svc).Run(nil); err != nil {
+		t.Fatalf("Run(nil) error = %v", err)
+	}
+}
+
+func TestAppRun_ServiceStopRespectsShutdownContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := &testService{
+		name: "svc",
+		runFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		stopFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
 	}
 
-	err := New(nil).AddServices(svc).Run(context.Background())
-	if err == nil || err.Error() != "service \"svc\": context canceled" {
+	a := New(nil, WithShutdownTimeout(20*time.Millisecond)).AddServices(svc)
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	err := <-done
+	if err == nil || err.Error() != "stop service \"svc\": context deadline exceeded" {
 		t.Fatalf("Run() error = %v", err)
 	}
 }

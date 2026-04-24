@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/HorseArcher567/octopus/pkg/hook"
 	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 )
@@ -18,14 +19,6 @@ type Service interface {
 	Run(ctx context.Context) error
 	Stop(ctx context.Context) error
 }
-
-// StartupHook is executed before services start.
-// If it returns an error, startup is aborted.
-type StartupHook func(ctx context.Context) error
-
-// ShutdownHook is executed during shutdown.
-// Even if it returns an error, subsequent shutdown hooks continue to run.
-type ShutdownHook func(ctx context.Context) error
 
 // Config defines application runtime policy loaded from the app config section.
 type Config struct {
@@ -56,8 +49,8 @@ type App struct {
 	store store.Store
 
 	services      []Service
-	startupHooks  []StartupHook
-	shutdownHooks []ShutdownHook
+	startupHooks  []hook.Func
+	shutdownHooks []hook.Func
 
 	runMu  sync.Mutex
 	hasRun bool
@@ -85,11 +78,6 @@ func (a *App) Logger() *xlog.Logger {
 	return a.log
 }
 
-// Store returns the shared dependency store owned by the app.
-func (a *App) Store() store.Store {
-	return a.store
-}
-
 // AddServices appends runtime services to the app.
 func (a *App) AddServices(services ...Service) *App {
 	for _, svc := range services {
@@ -101,7 +89,7 @@ func (a *App) AddServices(services ...Service) *App {
 }
 
 // OnStartup registers a startup hook.
-func (a *App) OnStartup(h StartupHook) *App {
+func (a *App) OnStartup(h hook.Func) *App {
 	if h != nil {
 		a.startupHooks = append(a.startupHooks, h)
 	}
@@ -109,7 +97,7 @@ func (a *App) OnStartup(h StartupHook) *App {
 }
 
 // OnShutdown registers a shutdown hook.
-func (a *App) OnShutdown(h ShutdownHook) *App {
+func (a *App) OnShutdown(h hook.Func) *App {
 	if h != nil {
 		a.shutdownHooks = append(a.shutdownHooks, h)
 	}

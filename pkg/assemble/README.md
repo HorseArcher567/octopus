@@ -1,6 +1,6 @@
 # pkg/assemble
 
-`pkg/assemble` is the application construction facade of Octopus.
+`pkg/assemble` is the application creation facade of Octopus.
 
 It is the primary package application developers should use to create an `*app.App`.
 
@@ -14,23 +14,23 @@ The public entrypoints live in `assemble.go`, while internal setup and final app
 `pkg/assemble` is responsible for:
 
 - loading or accepting config
-- performing internal setup
+- performing builtin setup
 - creating the shared store
 - creating named infrastructure instances and placing them into the store
 - initializing logger infrastructure from `logger` config and selecting component loggers (`app`, `apiServer`, `rpcServer`, `jobScheduler`) from named loggers
 - initializing framework runtime objects through an internal ordered setup pipeline
 - exposing a setup-facing extension context and a domain-facing registration context
-- collecting startup hooks, shutdown hooks, and runtime services
+- collecting lifecycle hooks and runtime services
 - creating and returning `*app.App`
 
-It is the outer application-construction layer.
+It is the outer application-creation layer.
 
 ---
 
 ## Public API
 
 ```go
-type Domain func(*Context) error
+type Domain func(*DomainContext) error
 
 type SetupStep struct {
     Name string
@@ -41,6 +41,8 @@ type Option func(*options)
 
 func WithDomains(domains ...Domain) Option
 func WithSetup(steps ...SetupStep) Option
+func WithStartupHooks(hooks ...hook.Func) Option
+func WithShutdownHooks(hooks ...hook.Func) Option
 func Load(path string, opts ...Option) (*app.App, error)
 func New(cfg *config.Config, opts ...Option) (*app.App, error)
 ```
@@ -49,6 +51,8 @@ For most applications, `Load(...)` is the primary entrypoint.
 
 Recommended public option names:
 - `WithSetup(...)`: register custom setup work
+- `WithStartupHooks(...)`: register app-level startup hooks
+- `WithShutdownHooks(...)`: register app-level shutdown hooks
 - `WithDomains(...)`: register business domains
 
 ---
@@ -149,18 +153,25 @@ builtin setup -> custom setup steps -> business domains -> app assembly
 `SetupContext` intentionally exposes a narrow capability surface:
 
 ```go
-func DecodeSetupConfig[T any](ctx *SetupContext, key string) (*T, error)
+func DecodeConfig[T any](ctx *SetupContext, key string) (*T, error)
 func (c *SetupContext) Logger() *xlog.Logger
 func (c *SetupContext) NamedLogger(name string) (*xlog.Logger, error)
 func (c *SetupContext) Provide(name string, value any, opts ...store.SetOption) error
 ```
 
+In addition, `SetupContext` anonymously embeds `store.Reader`, so setup steps can read shared resources that builtin setup has already prepared:
+
+```go
+db, err := store.GetNamed[*database.DB](ctx, "primary")
+```
+
 Semantics:
 
-- `DecodeSetupConfig(...)`: decodes a config subtree for a custom setup step
+- `DecodeConfig(...)`: decodes a config subtree for a custom setup step
 - `Logger()`: returns the app logger for ordinary setup logging
 - `NamedLogger(name)`: selects a specific configured logger by name
 - `Provide(...)`: registers a shared infrastructure resource into the store for later setup steps or domains
+- embedded `store.Reader`: exposes read-only dependency lookup during setup
 
 Custom setup steps should generally focus on infrastructure preparation, not domain registration.
 Business domain wiring, API/RPC registration, jobs, hooks, and custom runtime services should remain in `Domain`.
@@ -171,7 +182,7 @@ In practice, setup steps are the recommended place to write shared resources int
 Business code contributes domain registration through `Domain`:
 
 ```go
-func RegisterUser(ctx *assemble.Context) error {
+func RegisterUser(ctx *assemble.DomainContext) error {
     return ctx.RegisterAPI(func(engine *api.Engine) {
         // register user routes
     })
@@ -186,31 +197,38 @@ A domain may:
 - add startup hooks
 - add shutdown hooks
 - add custom runtime services
-- read shared dependencies from the store
+- read shared dependencies from the embedded `store.Reader`
+
+This means domains can contribute both transport registration and lifecycle behavior. For example, a domain may register a startup hook for domain-owned warmup or cleanup behavior after setup has created the required infrastructure resources.
+
+For app-level lifecycle behavior that does not belong to a specific business domain, prefer `WithStartupHooks(...)` and `WithShutdownHooks(...)`.
 
 Jobs are backed by the default in-process scheduler created during setup, so `RegisterJob(...)` is available by default.
 The scheduler itself can also choose a dedicated logger through `jobScheduler.logger`; otherwise it uses the app logger.
 
 ---
 
-## Context API
+## DomainContext API
 
 ```go
-func (c *Context) Logger() *xlog.Logger
-func (c *Context) Store() store.Store
-func (c *Context) RegisterAPI(fn func(*api.Engine)) error
-func (c *Context) RegisterRPC(fn func(*grpc.Server)) error
-func (c *Context) RegisterJob(name string, fn job.Func) error
-func (c *Context) OnStartup(h app.StartupHook)
-func (c *Context) OnShutdown(h app.ShutdownHook)
-func (c *Context) AddService(s app.Service)
+func (c *DomainContext) Logger() *xlog.Logger
+func (c *DomainContext) RegisterAPI(fn func(*api.Engine)) error
+func (c *DomainContext) RegisterRPC(fn func(grpc.ServiceRegistrar)) error
+func (c *DomainContext) RegisterJob(name string, fn job.Func) error
+func (c *DomainContext) OnStartup(h hook.Func)
+func (c *DomainContext) OnShutdown(h hook.Func)
+func (c *DomainContext) AddService(s app.Service)
 ```
 
-`Context` is intentionally small.
-It is the only registration surface business code should need.
-Internally, it is the domain-facing capability view over assemble's private setup state plus collectors for hooks and custom services.
+`DomainContext` anonymously embeds `store.Reader`, so shared dependencies can be read directly through `pkg/store` helpers:
 
-`Store()` is primarily intended for reading shared dependencies assembled by builtin setup or custom setup steps. Writing new shared resources directly through `Store()` should be done sparingly and with clear project-level conventions; for setup-time registration, prefer `SetupContext.Provide(...)`.
+```go
+db, err := store.GetNamed[*database.DB](ctx, "primary")
+```
+
+`DomainContext` is intentionally small.
+It is the only registration surface business code should normally need.
+Internally, it is the domain-facing capability view over assemble's private setup state plus collectors for hooks and custom services.
 
 ---
 
@@ -240,6 +258,9 @@ package main
 import (
     "context"
     "database/sql"
+    "os"
+    "os/signal"
+    "syscall"
 
     _ "modernc.org/sqlite"
 
@@ -256,7 +277,7 @@ func sqliteStep() assemble.SetupStep {
     return assemble.SetupStep{
         Name: "sqlite",
         Run: func(ctx *assemble.SetupContext) error {
-            cfg, err := assemble.DecodeSetupConfig[SQLiteConfig](ctx, "sqlite")
+            cfg, err := assemble.DecodeConfig[SQLiteConfig](ctx, "sqlite")
             if err != nil {
                 return err
             }
@@ -282,6 +303,7 @@ func main() {
     a, err := assemble.Load(
         "config.yaml",
         assemble.WithSetup(sqliteStep()),
+        assemble.WithStartupHooks(initSchema()),
         assemble.WithDomains(
             user.Register,
             order.Register,
@@ -291,16 +313,34 @@ func main() {
         panic(err)
     }
 
-    if err := a.Run(context.Background()); err != nil {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+
+    if err := a.Run(ctx); err != nil {
         panic(err)
     }
 }
 ```
 
-In later business domains, the provided resource can be read from the store:
+A startup hook can then consume the provided resource directly:
 
 ```go
-db, err := store.GetNamed[*sql.DB](ctx.Store(), "default")
+func initSchema() hook.Func {
+    return func(h *hook.Context) error {
+        db, err := store.GetNamed[*sql.DB](h, "default")
+        if err != nil {
+            return err
+        }
+        _, err = db.ExecContext(h.Context(), `create table if not exists users (id integer primary key)`)
+        return err
+    }
+}
+```
+
+In later business domains, the provided resource can be read from the embedded reader:
+
+```go
+db, err := store.GetNamed[*sql.DB](ctx, "default")
 ```
 
 ---
@@ -325,7 +365,7 @@ The setup pipeline is intentionally internal and ordered. It exists to keep the 
 Application developers should not need to know or manage:
 
 - internal setup stages
-- app construction details
+- app creation details
 - framework module systems
 - resource ownership wiring
 

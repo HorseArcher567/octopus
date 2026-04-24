@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 
+	"github.com/HorseArcher567/octopus/pkg/store"
 	"github.com/HorseArcher567/octopus/pkg/xlog"
 	"golang.org/x/sync/errgroup"
 )
@@ -13,12 +14,14 @@ type Scheduler struct {
 	g      *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelFunc
+	store  store.Reader
 }
 
-func NewScheduler(log *xlog.Logger) *Scheduler {
+func NewScheduler(log *xlog.Logger, reader store.Reader) *Scheduler {
 	return &Scheduler{
-		log:  log,
-		jobs: make([]*Job, 0),
+		log:   log,
+		jobs:  make([]*Job, 0),
+		store: reader,
 	}
 }
 
@@ -59,7 +62,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	for _, job := range s.jobs {
 		job := job
 		s.g.Go(func() error {
-			return job.Run(s.ctx, s.log)
+			return job.Run(NewContext(s.ctx, s.log, s.store, job.Name))
 		})
 	}
 

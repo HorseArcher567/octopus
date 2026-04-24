@@ -23,6 +23,8 @@ func build(raw *config.Config, s *state, opts ...Option) (*app.App, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx.startupHooks = append(ctx.startupHooks, o.startupHooks...)
+	ctx.shutdownHooks = append(ctx.shutdownHooks, o.shutdownHooks...)
 	if err := applyDomains(ctx, o.domains); err != nil {
 		return nil, err
 	}
@@ -79,7 +81,7 @@ func applySetupSteps(ctx *SetupContext, steps []SetupStep) error {
 	return nil
 }
 
-func applyDomains(ctx *Context, domains []Domain) error {
+func applyDomains(ctx *DomainContext, domains []Domain) error {
 	for i, domain := range domains {
 		if domain == nil {
 			continue
@@ -91,7 +93,7 @@ func applyDomains(ctx *Context, domains []Domain) error {
 	return nil
 }
 
-func assembleApp(s *state, ctx *Context, appCfg *app.Config) *app.App {
+func assembleApp(s *state, ctx *DomainContext, appCfg *app.Config) *app.App {
 	appOpts := make([]app.Option, 0, 2)
 	appOpts = append(appOpts, app.WithStore(s.store))
 	if appCfg != nil && appCfg.ShutdownTimeout > 0 {

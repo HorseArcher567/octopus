@@ -17,6 +17,6 @@ func setupJobs(c *setupContext) error {
 	if err != nil {
 		return fmt.Errorf("assemble: jobScheduler.logger: %w", err)
 	}
-	c.state.job = job.NewScheduler(log)
+	c.state.job = job.NewScheduler(log, c.state.store)
 	return nil
 }

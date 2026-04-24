@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"sync"
 )
@@ -17,12 +18,20 @@ type entry struct {
 	closeFn func() error
 }
 
-type Store interface {
-	Set(value any, opts ...SetOption) error
-	SetNamed(name string, value any, opts ...SetOption) error
+type Reader interface {
 	Get(typ reflect.Type) (any, error)
 	GetNamed(name string, typ reflect.Type) (any, error)
-	Close() error
+}
+
+type Writer interface {
+	Set(value any, opts ...SetOption) error
+	SetNamed(name string, value any, opts ...SetOption) error
+}
+
+type Store interface {
+	Reader
+	Writer
+	io.Closer
 }
 
 type store struct {
@@ -82,6 +91,13 @@ func (s *store) GetNamed(name string, typ reflect.Type) (any, error) {
 		return nil, &NotFoundError{Name: name, Type: typ}
 	}
 	return e.value, nil
+}
+
+func Close(s io.Closer) error {
+	if s == nil {
+		return nil
+	}
+	return s.Close()
 }
 
 func (s *store) Close() error {

@@ -20,13 +20,13 @@ The primary extension surface is explicit:
 
 Octopus is organized around a simple boundary:
 
-- `pkg/assemble` builds the application
+- `pkg/assemble` creates the application
 - `pkg/app` runs the application
 
 That translates into a few practical rules:
 
 - `pkg/app` stays a minimal runtime kernel
-- `pkg/assemble` is the only facade application code normally needs
+- `pkg/assemble` is the main facade application code normally needs
 - business code contributes domain registration through small domains
 - shared dependencies live in `pkg/store`
 - setup and domain registration details should not leak into application entry code
@@ -46,6 +46,7 @@ Primary packages for application code:
 - `pkg/rpc`
 - `pkg/config`
 - `pkg/xlog`
+- `pkg/hook`
 - `pkg/discovery` for discovery integration
 
 If you are adopting Octopus in production, pin a version and review changes before upgrading.
@@ -69,6 +70,9 @@ package main
 
 import (
     "context"
+    "os"
+    "os/signal"
+    "syscall"
 
     "github.com/HorseArcher567/octopus/pkg/assemble"
 )
@@ -85,7 +89,10 @@ func main() {
         panic(err)
     }
 
-    if err := a.Run(context.Background()); err != nil {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+
+    if err := a.Run(ctx); err != nil {
         panic(err)
     }
 }
@@ -93,7 +100,7 @@ func main() {
 
 ### Run the example service
 
-The multi-service server example is organized by business capability (`user`, `order`, `product`), assembled through business domains, and also shows a minimal custom setup step via `WithSetup(...)`.
+The multi-service server example is organized by business domain (`user`, `order`, `product`), assembled through business domains, and also shows both a minimal custom setup step via `WithSetup(...)` and an app-level startup hook via `WithStartupHooks(...)` used to initialize the demo SQLite schema.
 
 ```bash
 cd examples/multi-service/server
@@ -108,7 +115,7 @@ The multi-service client example runs as a short-lived app whose primary runtime
 go run ./examples/multi-service/client \
   -config examples/multi-service/client/config.yaml \
   -target etcd:///multi-service-demo \
-  -api http://127.0.0.1:8090/hello
+  -api http://127.0.0.1:8090
 ```
 
 ---
@@ -123,9 +130,6 @@ type Service interface {
     Run(ctx context.Context) error
     Stop(ctx context.Context) error
 }
-
-type StartupHook func(ctx context.Context) error
-type ShutdownHook func(ctx context.Context) error
 ```
 
 A `Service` is any long-running runtime unit managed by `pkg/app`.
@@ -141,7 +145,7 @@ Typical examples include:
 ### Domain registration
 
 ```go
-type Domain func(*assemble.Context) error
+type Domain func(*assemble.DomainContext) error
 ```
 
 Business code contributes to application creation through `Domain`.
@@ -154,15 +158,49 @@ A domain may:
 - add startup hooks
 - add shutdown hooks
 - add custom runtime services
-- read dependencies from the shared store
+- read dependencies from the shared store through `store.Reader`
+
+### Lifecycle hooks
+
+```go
+type Func func(*hook.Context) error
+```
+
+Lifecycle hooks are registered from `assemble.DomainContext`:
+
+- `ctx.OnStartup(...)`
+- `ctx.OnShutdown(...)`
+
+A hook receives:
+
+- `Context() context.Context`
+- `Logger() *xlog.Logger`
+- `store.Reader` for resolving shared dependencies
+
+### Jobs
+
+```go
+type Func func(*job.Context) error
+```
+
+A job receives:
+
+- `Context() context.Context`
+- `Logger() *xlog.Logger`
+- `Name() string`
+- `store.Reader` for resolving shared dependencies
 
 ---
 
 ## Shared store
 
-Etcd, MySQL, Redis, and other shared dependencies are loaded into `pkg/store`.
+Etcd, MySQL, SQLite, Redis, and other shared dependencies are loaded into `pkg/store`.
 
-The store supports typed lookup and named registrations.
+The store now separates read and write capabilities:
+
+- `store.Reader`
+- `store.Writer`
+- `store.Store`
 
 Typical operations:
 
@@ -173,6 +211,8 @@ Typical operations:
 - `MustGet[T](...)`
 - `MustGetNamed[T](...)`
 - `Close()`
+
+Read-only application contexts such as domain, hook, and job contexts expose `store.Reader`, not the full store.
 
 ---
 
@@ -226,6 +266,8 @@ octopus/
 │   ├── assemble/      # application construction facade
 │   ├── app/           # minimal runtime lifecycle kernel
 │   ├── store/         # shared object store
+│   ├── hook/          # lifecycle hook context and hook func model
+│   ├── job/           # job execution context and job func model
 │   ├── rpc/           # gRPC server and client helpers
 │   ├── api/           # API server
 │   ├── config/        # configuration loading

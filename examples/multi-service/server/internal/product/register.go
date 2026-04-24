@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func Register(ctx *assemble.Context) error {
+func Register(ctx *assemble.DomainContext) error {
 	db, err := shared.PrimaryDB(ctx)
 	if err != nil {
 		return err

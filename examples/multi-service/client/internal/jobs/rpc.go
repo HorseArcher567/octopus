@@ -14,18 +14,18 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func registerRPCJobs(ctx *assemble.Context, target string) error {
+func registerRPCJobs(ctx *assemble.DomainContext, target string) error {
 	baseLog := ctx.Logger()
 
 	jobs := map[string]job.Func{
-		"rpc.user_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCUserFlow(runCtx, preferJobLog(log, baseLog), target)
+		"rpc.user_flow": func(runCtx *job.Context) error {
+			return runRPCUserFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), target)
 		},
-		"rpc.order_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCOrderFlow(runCtx, preferJobLog(log, baseLog), target)
+		"rpc.order_flow": func(runCtx *job.Context) error {
+			return runRPCOrderFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), target)
 		},
-		"rpc.product_flow": func(runCtx context.Context, log *xlog.Logger) error {
-			return runRPCProductFlow(runCtx, preferJobLog(log, baseLog), target)
+		"rpc.product_flow": func(runCtx *job.Context) error {
+			return runRPCProductFlow(runCtx.Context(), preferJobLog(runCtx.Logger(), baseLog), target)
 		},
 	}
 
